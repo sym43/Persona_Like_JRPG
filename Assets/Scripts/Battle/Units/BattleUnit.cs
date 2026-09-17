@@ -50,9 +50,9 @@ public sealed class BattleUnit
     //현재 장비 ID 목록
     public IReadOnlyList<string> EquipmentIds { get; }
     //현재 적용된 효과 목록
-    public IReadOnlyList<BattleEffectState> Effects { get; }
+    public IReadOnlyList<BattleUnitEffectState> Effects { get; }
 
-    private readonly List<BattleEffectState> effectStates = new List<BattleEffectState>();
+    private readonly List<BattleUnitEffectState> effectStates = new List<BattleUnitEffectState>();
 
     //전투원을 만듦
     public BattleUnit(string battleId, BattleUnitData unitData,
@@ -207,7 +207,7 @@ public sealed class BattleUnit
     }
 
     //효과를 추가함
-    public void AddEffect(BattleEffectState effect)
+    public void AddEffect(BattleUnitEffectState effect)
     {
         #region 입력값 검사
 
