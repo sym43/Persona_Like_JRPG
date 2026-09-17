@@ -1,0 +1,5 @@
+﻿id,displayName,useType,damageType,costType,cost,targetType,power,accuracy,hitCount
+sample_slash,테스트 절단,Active,Slash,None,0,OneEnemy,100,95,1
+sample_fire,테스트 화염,Active,Anger,Sp,4,OneEnemy,90,95,1
+sample_heal,테스트 회복,Active,,Sp,3,OneAlly,0,100,1
+sample_critical,테스트 치명타 상승,Passive,,None,0,Self,0,100,1
