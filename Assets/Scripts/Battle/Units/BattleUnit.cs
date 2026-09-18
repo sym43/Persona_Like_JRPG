@@ -49,6 +49,12 @@ public sealed class BattleUnit
     public IReadOnlyList<string> SkillIds { get; }
     //현재 장비 ID 목록
     public IReadOnlyList<string> EquipmentIds { get; }
+    //장착 무기 또는 적 데이터에서 확정한 일반 공격 수치. 기본 공격이 없는 적은 비어 있음.
+    public BasicAttackData BasicAttack { get; }
+    //방어구 방어력
+    public int Armor { get; }
+    //신발 회피 수치
+    public int ShoeEvasion { get; }
     //현재 적용된 효과 목록
     public IReadOnlyList<BattleUnitEffectState> Effects { get; }
 
@@ -60,7 +66,8 @@ public sealed class BattleUnit
         string animaDataId, int turnTieOrder, int level,
         int maxHp, int maxSp, int hp, int sp, BattleStats stats,
         ResistanceTable resistances, IEnumerable<string> skillIds,
-        IReadOnlyList<string> equipmentIds)
+        IReadOnlyList<string> equipmentIds, BasicAttackData basicAttack,
+        int armor, int shoeEvasion)
     {
         #region 입력값 검사
 
@@ -72,6 +79,10 @@ public sealed class BattleUnit
         if (maxSp < 0) throw new ArgumentOutOfRangeException(nameof(maxSp), "최대 SP는 0 이상이어야 합니다.");
         if (stats == null) throw new ArgumentNullException(nameof(stats), "전투 능력치가 필요합니다.");
         if (resistances == null) throw new ArgumentNullException(nameof(resistances), "저항 표가 필요합니다.");
+        if (basicAttack == null && unitData.Role != UnitRole.Enemy)
+            throw new ArgumentNullException(nameof(basicAttack), "아군의 일반 공격 수치가 필요합니다.");
+        if (armor < 0) throw new ArgumentOutOfRangeException(nameof(armor), "방어구 방어력은 0 이상이어야 합니다.");
+        if (shoeEvasion < 0) throw new ArgumentOutOfRangeException(nameof(shoeEvasion), "신발 회피는 0 이상이어야 합니다.");
         bool isEnemy = unitData.Role == UnitRole.Enemy;
         if (!isEnemy)
         {
@@ -100,6 +111,9 @@ public sealed class BattleUnit
         Resistances = resistances;
         SkillIds = BattleDataChecks.CheckAndCopySkillIds(skillIds, isEnemy ? int.MaxValue : 8);
         EquipmentIds = BattleDataChecks.CheckAndCopyEquipmentIds(equipmentIds);
+        BasicAttack = basicAttack;
+        Armor = armor;
+        ShoeEvasion = shoeEvasion;
         Effects = effectStates.AsReadOnly();
         InitializeState(hp, sp);
     }

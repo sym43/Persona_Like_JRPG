@@ -6,22 +6,42 @@ using System;
 /// </summary>
 public static class BattleAttackCalculator
 {
+    private static readonly double[] LevelMultipliers =
+    {
+        0.5d, 0.51d, 0.53d, 0.59d, 0.66d, 0.75d,
+        0.84d, 0.91d, 0.97d, 0.99d, 1d, 1d, 1d,
+        1d, 1.01d, 1.03d, 1.09d, 1.16d, 1.25d,
+        1.34d, 1.41d, 1.47d, 1.49d, 1.5d
+    };
+
+    //양쪽 레벨 차이로 원작의 피해 보정을 찾음
+    public static double GetLevelMultiplier(int attackerLevel, int targetLevel, bool bossBattle)
+    {
+        BattleDataChecks.CheckLevel(attackerLevel);
+        BattleDataChecks.CheckLevel(targetLevel);
+        int index = Math.Max(0, Math.Min(LevelMultipliers.Length - 1,
+            attackerLevel - targetLevel + 13));
+        double multiplier = LevelMultipliers[index];
+        return bossBattle ? Math.Max(1d, multiplier) : multiplier;
+    }
+
     //공격자와 대상의 능력치로 기본 피해를 계산함
     public static int CalculateBaseDamage(BattleUnit attacker, BattleUnit target,
-        DamageType damageType, int power, int armor, double levelMultiplier,
+        DamageType damageType, double power, int armor, double levelMultiplier,
         double affinityMultiplier, bool basicAttack)
     {
         if (attacker == null) throw new ArgumentNullException(nameof(attacker), "공격자가 필요합니다.");
         if (target == null) throw new ArgumentNullException(nameof(target), "대상이 필요합니다.");
         if (!Enum.IsDefined(typeof(DamageType), damageType))
             throw new ArgumentOutOfRangeException(nameof(damageType), "알 수 없는 피해 속성입니다.");
-        if (power < 0) throw new ArgumentOutOfRangeException(nameof(power), "위력은 0 이상이어야 합니다.");
+        if (double.IsNaN(power) || double.IsInfinity(power) || power < 0d)
+            throw new ArgumentOutOfRangeException(nameof(power), "위력은 0 이상의 유한한 값이어야 합니다.");
         if (armor < 0) throw new ArgumentOutOfRangeException(nameof(armor), "방어구 방어력은 0 이상이어야 합니다.");
         CheckMultiplier(levelMultiplier, nameof(levelMultiplier));
         CheckMultiplier(affinityMultiplier, nameof(affinityMultiplier));
 
         bool physical = IsPhysical(damageType);
-        int offense = physical ? attacker.Stats.Strength : attacker.Stats.Magic;
+        int offense = basicAttack || physical ? attacker.Stats.Strength : attacker.Stats.Magic;
         int endurance = target.Stats.Endurance;
         if (!attacker.IsEnemy)
             return (int)Math.Truncate(Math.Sqrt(power * 15d * offense / endurance)
@@ -106,7 +126,6 @@ public static class BattleAttackCalculator
         return IsPhysical(damageType) && skillCriticalRate > 0 && hit &&
             resistance != ResistanceType.Weak &&
             resistance != ResistanceType.Immune &&
-            resistance != ResistanceType.Reflect &&
             resistance != ResistanceType.Drain &&
             !friendlyFire && !targetImmuneToCritical && !target.IsGuarding;
     }
