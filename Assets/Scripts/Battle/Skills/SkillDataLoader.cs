@@ -21,7 +21,8 @@ public sealed class SkillDataLoader
         "targetType",
         "power",
         "accuracy",
-        "hitCount"
+        "hitCount",
+        "criticalRate"
     };
 
     private IReadOnlyDictionary<string, SkillData> loadedSkills;
@@ -69,7 +70,8 @@ public sealed class SkillDataLoader
                     CsvTableReader.ReadEnum<SkillTargetType>(row, 6, ColumnNames[6], sourceName, rowNumber),
                     CsvTableReader.ReadNumber(row, 7, ColumnNames[7], sourceName, rowNumber),
                     CsvTableReader.ReadNumber(row, 8, ColumnNames[8], sourceName, rowNumber),
-                    CsvTableReader.ReadNumber(row, 9, ColumnNames[9], sourceName, rowNumber));
+                    CsvTableReader.ReadNumber(row, 9, ColumnNames[9], sourceName, rowNumber),
+                    CsvTableReader.ReadNumber(row, 10, ColumnNames[10], sourceName, rowNumber));
 
                 if (!skills.TryAdd(skill.Id, skill))
                     throw new FormatException($"{sourceName} {rowNumber}행에 중복된 스킬 ID가 있습니다: {skill.Id}");

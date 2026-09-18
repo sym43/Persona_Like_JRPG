@@ -26,11 +26,13 @@ public sealed class SkillData
     public int Accuracy { get; }
     //타격 수
     public int HitCount { get; }
+    //스킬 기본 치명타율. 0이면 치명타가 나지 않음
+    public int CriticalRate { get; }
 
     //스킬 데이터를 만듦
     public SkillData(string id, string displayName, SkillUseType useType,
         DamageType? damageType, SkillCostType costType, int cost,
-        SkillTargetType targetType, int power, int accuracy, int hitCount)
+        SkillTargetType targetType, int power, int accuracy, int hitCount, int criticalRate)
     {
         #region 입력값 검사
 
@@ -55,6 +57,8 @@ public sealed class SkillData
             throw new ArgumentOutOfRangeException(nameof(accuracy), "명중률은 0 이상 100 이하여야 합니다.");
         if (hitCount < 1)
             throw new ArgumentOutOfRangeException(nameof(hitCount), "타격 수는 1 이상이어야 합니다.");
+        if (criticalRate < 0 || criticalRate > 100)
+            throw new ArgumentOutOfRangeException(nameof(criticalRate), "스킬 치명타율은 0 이상 100 이하여야 합니다.");
         if (useType == SkillUseType.Passive &&
             (costType != SkillCostType.None || cost != 0))
             throw new ArgumentException("패시브 스킬은 자원 비용을 가질 수 없습니다.");
@@ -71,5 +75,6 @@ public sealed class SkillData
         Power = power;
         Accuracy = accuracy;
         HitCount = hitCount;
+        CriticalRate = criticalRate;
     }
 }
