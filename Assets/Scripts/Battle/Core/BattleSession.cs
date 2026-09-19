@@ -26,14 +26,14 @@ public sealed class BattleSession
 
     private int orderIndex = -1;
     private BattleUnit currentUnit;
-    private bool awaitingPresentation;
+    private bool actionExecuted;
 
     //현재 전투 순환 번호
     public int Round { get; private set; } = 1;
     //현재 행동 중인 전투원
     public BattleUnit CurrentUnit => currentUnit;
-    //행동 결과의 연출이 끝나기를 기다리는지
-    public bool AwaitingPresentation => awaitingPresentation;
+    //현재 행동이 적용되고 차례 종료를 기다리는지
+    public bool ActionExecuted => actionExecuted;
     //현재 전투 상태
     public BattleState State { get; private set; } = BattleState.Ongoing;
 
@@ -79,8 +79,8 @@ public sealed class BattleSession
         if (action == null) throw new ArgumentNullException(nameof(action), "전투 행동이 필요합니다.");
         if (currentUnit == null || State != BattleState.Ongoing)
             throw new InvalidOperationException("현재 실행할 수 있는 차례가 아닙니다.");
-        if (awaitingPresentation)
-            throw new InvalidOperationException("현재 행동의 연출이 끝나기를 기다리고 있습니다.");
+        if (actionExecuted)
+            throw new InvalidOperationException("현재 행동은 이미 실행됐습니다.");
         if (!string.Equals(action.UnitId, currentUnit.BattleId, StringComparison.Ordinal))
             throw new InvalidOperationException("현재 행동자와 명령의 전투원 ID가 다릅니다.");
 
@@ -96,15 +96,15 @@ public sealed class BattleSession
         IReadOnlyList<BattleUnit> targets = ResolveTargets(action, currentUnit, skill);
         BattleActionResult result = actionExecutor.Execute(
             action, currentUnit, targets, skill, effects);
-        awaitingPresentation = true;
+        actionExecuted = true;
         return result;
     }
 
-    //연출이 끝난 행동을 마무리함
+    //실행한 행동을 마무리하고 현재 차례를 끝냄
     public BattleState FinishAction()
     {
-        if (!awaitingPresentation)
-            throw new InvalidOperationException("마무리할 행동 연출이 없습니다.");
+        if (!actionExecuted)
+            throw new InvalidOperationException("마무리할 행동이 없습니다.");
         return CompleteTurn();
     }
 
@@ -298,7 +298,7 @@ public sealed class BattleSession
         #endregion
 
         currentUnit = null;
-        awaitingPresentation = false;
+        actionExecuted = false;
         UpdateOutcome();
         return State;
     }
