@@ -17,6 +17,14 @@ public sealed class PlayerActionInput : MonoBehaviour
             new BattleAction(unit.BattleId, BattleActionType.BasicAttack, targetId));
     }
 
+    //선택한 스킬 사용을 요청함
+    public void ChooseSkill(string skillId, string targetId = null)
+    {
+        BattleUnit unit = GetCurrentUnit();
+        battleController.SubmitPlayerAction(
+            new BattleAction(unit.BattleId, BattleActionType.Skill, targetId, skillId));
+    }
+
     //현재 전투원을 방어 상태로 만듦
     public void ChooseGuard()
     {

@@ -161,6 +161,20 @@ public sealed class BattleUnit
         return true;
     }
 
+    //HP를 사용함. 사용 후 1 미만이 되면 false를 반환함
+    public bool TryUseHp(int amount)
+    {
+        #region 입력값 검사
+
+        if (amount < 0) throw new ArgumentOutOfRangeException(nameof(amount), "HP 사용량은 0 이상이어야 합니다.");
+
+        #endregion
+
+        if (Hp <= amount) return false;
+        Hp -= amount;
+        return true;
+    }
+
     //현재 SP를 회복함
     public void RecoverSp(int amount)
     {

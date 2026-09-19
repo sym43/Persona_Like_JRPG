@@ -14,6 +14,12 @@ public static class BattleAttackCalculator
         1.34d, 1.41d, 1.47d, 1.49d, 1.5d
     };
 
+    private static readonly int[] HealingMagicBonuses =
+    {
+        0, 6, 12, 17, 22, 27, 34, 44, 54, 65,
+        75, 85, 93, 100, 105, 110, 115, 120, 125, 130
+    };
+
     //양쪽 레벨 차이로 원작의 피해 보정을 찾음
     public static double GetLevelMultiplier(int attackerLevel, int targetLevel, bool bossBattle)
     {
@@ -169,6 +175,15 @@ public static class BattleAttackCalculator
         if (divineGrace) healed = Math.Truncate(healed * 1.5d);
         healed = Math.Max(1d, Math.Min(99999d, healed));
         return (int)Math.Truncate(Math.Max(1d, healed * rangePercent / 100d));
+    }
+
+    //마력 수치로 원작 회복량 구간 보너스를 찾음
+    public static int GetHealingMagicBonus(int magic)
+    {
+        if (magic < 1 || magic > 99)
+            throw new ArgumentOutOfRangeException(nameof(magic), "마력은 1 이상 99 이하여야 합니다.");
+        int index = Math.Min(HealingMagicBonuses.Length - 1, (magic - 1) / 5);
+        return HealingMagicBonuses[index];
     }
 
     private static bool IsPhysical(DamageType type) =>

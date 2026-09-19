@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 
 /// <summary>
 /// 선택된 전투 행동을 계산하고 전투원 상태에 적용함.
@@ -17,10 +18,13 @@ internal sealed class BattleActionExecutor
     }
 
     //선택된 행동을 한 번 실행함
-    public BattleActionResult Execute(BattleAction action, BattleUnit actor, BattleUnit target)
+    public BattleActionResult Execute(BattleAction action, BattleUnit actor,
+        IReadOnlyList<BattleUnit> targets, SkillData skill = null,
+        IReadOnlyList<SkillEffectData> effects = null)
     {
         if (action == null) throw new ArgumentNullException(nameof(action), "행동이 필요합니다.");
         if (actor == null) throw new ArgumentNullException(nameof(actor), "행동자가 필요합니다.");
+        if (targets == null) throw new ArgumentNullException(nameof(targets), "대상 목록이 필요합니다.");
         if (!string.Equals(action.UnitId, actor.BattleId, StringComparison.Ordinal))
             throw new InvalidOperationException("현재 행동자와 명령의 전투원 ID가 다릅니다.");
         if (actor.IsDead || actor.HasLeftBattle)
@@ -29,113 +33,219 @@ internal sealed class BattleActionExecutor
         switch (action.Type)
         {
             case BattleActionType.BasicAttack:
-                return UseBasicAttack(actor, target);
+                return UseBasicAttack(actor, targets);
+            case BattleActionType.Skill:
+                return UseSkill(actor, targets, skill, effects);
             case BattleActionType.Guard:
                 actor.StartGuard();
-                return new BattleActionResult(action.Type, actor.BattleId, null,
-                    false, false, null, 0, false, false, actor.Hp);
+                return new BattleActionResult(action.Type, actor.BattleId,
+                    null, Array.Empty<BattleImpactResult>());
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), "지원하지 않는 전투 행동입니다.");
         }
     }
 
     //일반 공격을 계산해 대상에게 적용함
-    private BattleActionResult UseBasicAttack(BattleUnit actor, BattleUnit target)
+    private BattleActionResult UseBasicAttack(BattleUnit actor,
+        IReadOnlyList<BattleUnit> targets)
     {
-        if (target == null || target.IsDead || target.HasLeftBattle ||
-            actor.IsEnemy == target.IsEnemy)
-            throw new InvalidOperationException("공격할 수 없는 대상입니다.");
-
+        if (targets.Count != 1)
+            throw new InvalidOperationException("일반 공격 대상은 한 명이어야 합니다.");
+        BattleUnit target = targets[0];
         BasicAttackData attack = actor.BasicAttack;
         if (attack == null)
             throw new InvalidOperationException("이 전투원은 기본 공격을 사용할 수 없습니다.");
-        ResistanceType resistance = target.Resistances.Get(attack.DamageType);
-        if (resistance == ResistanceType.Immune)
-            return new BattleActionResult(BattleActionType.BasicAttack, actor.BattleId,
-                target.BattleId, true, false, resistance, 0, false,
-                target.IsGuarding, target.Hp);
 
-        bool hit = attack.Accuracy == 100 || target.IsDown ||
+        var impacts = new List<BattleImpactResult>();
+        ResolveAttack(actor, target, attack.DamageType, attack.Power,
+            attack.Accuracy, 1, 3, true, 0, impacts);
+        return new BattleActionResult(BattleActionType.BasicAttack,
+            actor.BattleId, null, impacts);
+    }
+
+    //스킬 비용을 지불하고 연결된 효과를 순서대로 적용함
+    private BattleActionResult UseSkill(BattleUnit actor,
+        IReadOnlyList<BattleUnit> targets, SkillData skill,
+        IReadOnlyList<SkillEffectData> effects)
+    {
+        if (skill == null || effects == null || effects.Count == 0)
+            throw new InvalidOperationException("실행할 스킬 효과가 없습니다.");
+        PayCost(actor, skill);
+
+        var impacts = new List<BattleImpactResult>();
+        foreach (SkillEffectData effect in effects)
+        {
+            foreach (BattleUnit target in targets)
+            {
+                if (target.IsDead || target.HasLeftBattle)
+                    continue;
+
+                switch (effect.Type)
+                {
+                    case SkillEffectType.Damage:
+                        ResolveAttack(actor, target, effect.DamageType.Value,
+                            effect.Power, effect.Accuracy, effect.HitCount,
+                            effect.CriticalRate, false, effect.Order, impacts);
+                        break;
+                    case SkillEffectType.Heal:
+                        ResolveHealing(actor, target, effect, impacts);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(effect), "지원하지 않는 스킬 효과입니다.");
+                }
+            }
+        }
+
+        return new BattleActionResult(BattleActionType.Skill,
+            actor.BattleId, skill.Id, impacts);
+    }
+
+    //스킬의 HP 또는 SP 비용을 지불함
+    private static void PayCost(BattleUnit actor, SkillData skill)
+    {
+        switch (skill.CostType)
+        {
+            case SkillCostType.None:
+                return;
+            case SkillCostType.Hp:
+                int hpCost = BattleAttackCalculator.CalculateHpCost(actor, skill.Cost);
+                if (!actor.TryUseHp(hpCost))
+                    throw new InvalidOperationException("스킬을 사용할 HP가 부족합니다.");
+                return;
+            case SkillCostType.Sp:
+                if (!actor.TryUseSp(skill.Cost))
+                    throw new InvalidOperationException("스킬을 사용할 SP가 부족합니다.");
+                return;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(skill), "지원하지 않는 스킬 비용입니다.");
+        }
+    }
+
+    //공격 효과의 명중, 상성, 반사와 각 타격 피해를 계산함
+    private void ResolveAttack(BattleUnit actor, BattleUnit target,
+        DamageType damageType, int power, int accuracy, int hitCount,
+        int criticalRate, bool basicAttack, int effectOrder,
+        ICollection<BattleImpactResult> impacts)
+    {
+        ResistanceType resistance = target.Resistances.Get(damageType);
+        if (resistance == ResistanceType.Immune)
+        {
+            impacts.Add(CreateImpact(effectOrder, 1, target, target,
+                true, false, resistance, resistance, 0, 0, false, false));
+            return;
+        }
+
+        bool hit = accuracy == 100 || target.IsDown ||
             resistance == ResistanceType.Reflect || resistance == ResistanceType.Drain;
         if (!hit)
         {
             int baseChance = BattleAttackCalculator.CalculateBaseHitChance(
-                actor, target, attack.Accuracy, target.ShoeEvasion);
+                actor, target, accuracy, target.ShoeEvasion);
             int chance = Math.Max(50, Math.Min(99, baseChance));
             hit = random.Next(100) < chance;
         }
         if (!hit)
-            return new BattleActionResult(BattleActionType.BasicAttack, actor.BattleId,
-                target.BattleId, false, false, resistance, 0, false,
-                false, target.Hp);
+        {
+            impacts.Add(CreateImpact(effectOrder, 1, target, target,
+                false, false, resistance, resistance, 0, 0, false, false));
+            return;
+        }
 
+        //임시: 전투원별 치명타 면역 데이터가 추가되면 해당 값을 사용함.
+        bool targetImmuneToCritical = false;
         bool critical = BattleAttackCalculator.CanCritical(target,
-            attack.DamageType, 3, true, resistance, false, false) &&
-            random.Next(100) < BattleAttackCalculator.CalculateBaseCriticalChance(
-                actor, target, 3);
+            damageType, criticalRate, true, resistance, false,
+            targetImmuneToCritical) && random.Next(100) <
+            BattleAttackCalculator.CalculateBaseCriticalChance(actor, target, criticalRate);
 
         bool reflected = resistance == ResistanceType.Reflect;
         bool drained = resistance == ResistanceType.Drain;
         ResistanceType appliedResistance = reflected
-            ? actor.Resistances.Get(attack.DamageType) : resistance;
+            ? actor.Resistances.Get(damageType) : resistance;
+        BattleUnit receiver = reflected ? actor : target;
+
         if (reflected && (appliedResistance == ResistanceType.Immune ||
                           appliedResistance == ResistanceType.Reflect))
-            return new BattleActionResult(BattleActionType.BasicAttack, actor.BattleId,
-                target.BattleId, true, false, resistance, 0, false,
-                false, actor.Hp, actor.BattleId,
-                appliedResistance: appliedResistance);
+        {
+            impacts.Add(CreateImpact(effectOrder, 1, target, actor,
+                true, critical, resistance, appliedResistance,
+                0, 0, false, false));
+            return;
+        }
 
         bool healing = drained || (reflected && appliedResistance == ResistanceType.Drain);
-        BattleUnit receiver = reflected ? actor : target;
         bool effectiveCritical = critical && !healing &&
                                  appliedResistance != ResistanceType.Weak;
-        double power = actor.IsEnemy ? attack.Power : attack.Power / 2d;
+        double adjustedPower = basicAttack && !actor.IsEnemy ? power / 2d : power;
         double levelMultiplier = BattleAttackCalculator.GetLevelMultiplier(
             actor.Level, receiver.Level, bossBattle);
         int armor = actor.IsEnemy && receiver.IsEnemy ? 10 : receiver.Armor;
         int baseDamage = BattleAttackCalculator.CalculateBaseDamage(actor, receiver,
-            attack.DamageType, power, armor, levelMultiplier,
-            healing ? 1d : BattleAttackCalculator.GetAffinityMultiplier(appliedResistance), true);
+            damageType, adjustedPower, armor, levelMultiplier,
+            healing ? 1d : BattleAttackCalculator.GetAffinityMultiplier(appliedResistance),
+            basicAttack);
         bool guarded = !reflected && !drained && target.IsGuarding;
-        double modifier = (effectiveCritical ? 1.5d : 1d) * (guarded ? 0.4d : 1d);
-        int damage = BattleAttackCalculator.CalculateDamage(
-            baseDamage, modifier, random.Next(95, 106));
+        double modifier = (effectiveCritical ? 1.5d : 1d) *
+                          (guarded ? 0.4d : 1d);
 
-        if (healing)
+        for (int hitNumber = 1; hitNumber <= hitCount; hitNumber++)
         {
+            int damage = BattleAttackCalculator.CalculateDamage(
+                baseDamage, modifier, random.Next(95, 106));
             int hpBefore = receiver.Hp;
-            receiver.RecoverHp(damage);
-            return new BattleActionResult(BattleActionType.BasicAttack, actor.BattleId,
-                target.BattleId, true, false, resistance, 0, false,
-                guarded, receiver.Hp, receiver.BattleId,
-                receiver.Hp - hpBefore, appliedResistance: appliedResistance);
+            bool downed = false;
+
+            if (healing)
+            {
+                receiver.RecoverHp(damage);
+                impacts.Add(CreateImpact(effectOrder, hitNumber, target, receiver,
+                    true, critical, resistance, appliedResistance, 0,
+                    receiver.Hp - hpBefore, false, false));
+                continue;
+            }
+
+            bool wasDown = receiver.IsDown;
+            receiver.TakeDamage(damage);
+            downed = !receiver.IsDead && !wasDown && !guarded &&
+                     (appliedResistance == ResistanceType.Weak || effectiveCritical);
+            if (downed)
+                receiver.KnockDown();
+
+            impacts.Add(CreateImpact(effectOrder, hitNumber, target, receiver,
+                true, critical, resistance, appliedResistance, damage,
+                0, downed, guarded));
+            if (receiver.IsDead)
+                break;
         }
 
-        if (reflected)
-        {
-            bool wasDownActor = actor.IsDown;
-            actor.TakeDamage(damage);
-            bool downedActor = !actor.IsDead && !wasDownActor &&
-                (appliedResistance == ResistanceType.Weak || effectiveCritical);
-            if (downedActor)
-                actor.KnockDown();
-            return new BattleActionResult(BattleActionType.BasicAttack, actor.BattleId,
-                target.BattleId, true, critical, resistance, damage, false,
-                guarded, actor.Hp, actor.BattleId, downedActor: downedActor,
-                appliedResistance: appliedResistance);
-        }
-
-        bool wasDown = target.IsDown;
-        target.TakeDamage(damage);
-        bool downedTarget = !target.IsDead && !wasDown && !guarded &&
-            (resistance == ResistanceType.Weak || effectiveCritical);
-        if (downedTarget)
-            target.KnockDown();
-        if (guarded)
+        if (guarded && receiver == target && target.Hp < target.MaxHp)
             target.EndGuard();
+    }
 
-        return new BattleActionResult(BattleActionType.BasicAttack, actor.BattleId,
-            target.BattleId, true, critical, resistance, damage, downedTarget,
-            guarded, target.Hp);
+    //회복 효과를 대상에게 적용함
+    private void ResolveHealing(BattleUnit actor, BattleUnit target,
+        SkillEffectData effect, ICollection<BattleImpactResult> impacts)
+    {
+        int magicBonus = BattleAttackCalculator.GetHealingMagicBonus(actor.Stats.Magic);
+        //임시: 패시브 스킬 적용 단계에서 Divine Grace 보유 여부를 연결함.
+        bool divineGrace = false;
+        int amount = BattleAttackCalculator.CalculateHealing(actor, effect.Power,
+            magicBonus, divineGrace, random.Next(95, 106));
+        int hpBefore = target.Hp;
+        target.RecoverHp(amount);
+        impacts.Add(CreateImpact(effect.Order, 1, target, target,
+            true, false, null, null, 0, target.Hp - hpBefore, false, false));
+    }
+
+    //한 번의 적용 결과를 현재 대상 상태와 함께 만듦
+    private static BattleImpactResult CreateImpact(int effectOrder, int hitNumber,
+        BattleUnit target, BattleUnit receiver, bool hit, bool critical,
+        ResistanceType? resistance, ResistanceType? appliedResistance,
+        int damage, int healing, bool downed, bool guarded)
+    {
+        return new BattleImpactResult(effectOrder, hitNumber,
+            target.BattleId, receiver.BattleId, hit, critical,
+            resistance, appliedResistance, damage, healing,
+            downed, guarded, receiver.Hp);
     }
 }

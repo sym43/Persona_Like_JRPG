@@ -7,6 +7,7 @@ using System.Collections.Generic;
 public sealed class BattleDataLoader
 {
     private readonly SkillDataLoader skillLoader = new SkillDataLoader();
+    private readonly SkillEffectDataLoader skillEffectLoader = new SkillEffectDataLoader();
     private readonly AnimaSkillDataLoader animaSkillLoader = new AnimaSkillDataLoader();
     private readonly AnimaDataLoader animaLoader = new AnimaDataLoader();
     private readonly BattleUnitDataLoader battleUnitLoader = new BattleUnitDataLoader();
@@ -20,12 +21,13 @@ public sealed class BattleDataLoader
             return loadedData;
 
         var skills = skillLoader.Load();
+        var skillEffects = skillEffectLoader.Load();
         var learnableSkills = animaSkillLoader.Load();
         var animas = animaLoader.Load(learnableSkills);
         var battleUnits = battleUnitLoader.Load();
 
-        CheckReferences(animas, skills, learnableSkills, battleUnits);
-        loadedData = new BattleDataSet(animas, skills, battleUnits);
+        CheckReferences(animas, skills, skillEffects, learnableSkills, battleUnits);
+        loadedData = new BattleDataSet(animas, skills, skillEffects, battleUnits);
         return loadedData;
     }
 
@@ -33,9 +35,24 @@ public sealed class BattleDataLoader
     private static void CheckReferences(
         IReadOnlyDictionary<string, AnimaData> animas,
         IReadOnlyDictionary<string, SkillData> skills,
+        IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
         IReadOnlyDictionary<string, IReadOnlyList<SkillLearnData>> learnableSkills,
         IReadOnlyDictionary<string, BattleUnitData> battleUnits)
     {
+        foreach (var pair in skillEffects)
+        {
+            if (!skills.TryGetValue(pair.Key, out SkillData skill))
+                throw new FormatException($"skill_effects.csv에 없는 스킬 ID가 있습니다: {pair.Key}");
+            if (skill.UseType != SkillUseType.Active)
+                throw new FormatException($"패시브 스킬에는 실행 효과를 넣을 수 없습니다: {pair.Key}");
+        }
+
+        foreach (var skill in skills.Values)
+        {
+            if (skill.UseType == SkillUseType.Active && !skillEffects.ContainsKey(skill.Id))
+                throw new FormatException($"액티브 스킬에 실행 효과가 없습니다: {skill.Id}");
+        }
+
         foreach (var animaSkills in learnableSkills)
         {
             if (!animas.ContainsKey(animaSkills.Key))

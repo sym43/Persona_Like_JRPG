@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 /// <summary>
 /// 현재 전투 상태.
@@ -18,6 +19,8 @@ public sealed class BattleSession
 {
     private readonly BattleTurnOrder turnOrder;
     private readonly Dictionary<string, BattleUnit> units;
+    private readonly IReadOnlyDictionary<string, SkillData> skills;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects;
     private readonly BattleUnit mainCharacter;
     private readonly BattleActionExecutor actionExecutor;
 
@@ -34,20 +37,37 @@ public sealed class BattleSession
     //현재 전투 상태
     public BattleState State { get; private set; } = BattleState.Ongoing;
 
-    //턴 순서와 전투원을 연결함
+    //스킬 없이 기본 행동만 가능한 전투를 만듦
     public BattleSession(BattleTurnOrder turnOrder, IEnumerable<BattleUnit> units,
+        Random random, bool bossBattle = false)
+        : this(turnOrder, units,
+            new ReadOnlyDictionary<string, SkillData>(new Dictionary<string, SkillData>()),
+            new ReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>>(
+                new Dictionary<string, IReadOnlyList<SkillEffectData>>()),
+            random, bossBattle)
+    {
+    }
+
+    //턴 순서, 전투원과 스킬 데이터를 연결함
+    public BattleSession(BattleTurnOrder turnOrder, IEnumerable<BattleUnit> units,
+        IReadOnlyDictionary<string, SkillData> skills,
+        IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
         Random random, bool bossBattle = false)
     {
         #region 입력값 검사
 
         if (turnOrder == null) throw new ArgumentNullException(nameof(turnOrder), "턴 순서가 필요합니다.");
         if (units == null) throw new ArgumentNullException(nameof(units), "전투원 목록이 필요합니다.");
+        if (skills == null) throw new ArgumentNullException(nameof(skills), "스킬 목록이 필요합니다.");
+        if (skillEffects == null) throw new ArgumentNullException(nameof(skillEffects), "스킬 효과 목록이 필요합니다.");
         if (random == null) throw new ArgumentNullException(nameof(random), "행동 난수 생성기가 필요합니다.");
 
         #endregion
 
         this.turnOrder = turnOrder;
         this.units = CopyUnits(units, out mainCharacter);
+        this.skills = skills;
+        this.skillEffects = skillEffects;
         actionExecutor = new BattleActionExecutor(random, bossBattle);
         CheckOrderMembers();
         UpdateOutcome();
@@ -64,11 +84,18 @@ public sealed class BattleSession
         if (!string.Equals(action.UnitId, currentUnit.BattleId, StringComparison.Ordinal))
             throw new InvalidOperationException("현재 행동자와 명령의 전투원 ID가 다릅니다.");
 
-        BattleUnit target = null;
-        if (action.TargetId != null && !units.TryGetValue(action.TargetId, out target))
-            throw new InvalidOperationException("전투에 없는 대상입니다.");
+        SkillData skill = null;
+        IReadOnlyList<SkillEffectData> effects = null;
+        if (action.Type == BattleActionType.Skill)
+        {
+            skill = GetOwnedActiveSkill(currentUnit, action.SkillId);
+            effects = skillEffects[skill.Id];
+            CheckCost(currentUnit, skill);
+        }
 
-        BattleActionResult result = actionExecutor.Execute(action, currentUnit, target);
+        IReadOnlyList<BattleUnit> targets = ResolveTargets(action, currentUnit, skill);
+        BattleActionResult result = actionExecutor.Execute(
+            action, currentUnit, targets, skill, effects);
         awaitingPresentation = true;
         return result;
     }
@@ -84,13 +111,30 @@ public sealed class BattleSession
     //현재 행동자의 살아 있는 상대를 구함
     public IReadOnlyList<BattleUnit> GetOpponents()
     {
+        return GetUnitsBySide(true);
+    }
+
+    //현재 행동자와 같은 편의 살아 있는 전투원을 구함
+    public IReadOnlyList<BattleUnit> GetAllies()
+    {
+        return GetUnitsBySide(false);
+    }
+
+    //현재 행동자가 자원을 낼 수 있는 액티브 스킬을 구함
+    public IReadOnlyList<SkillData> GetUsableSkills()
+    {
         if (currentUnit == null)
             throw new InvalidOperationException("현재 행동자가 없습니다.");
-        var result = new List<BattleUnit>();
-        foreach (var unit in units.Values)
+
+        var result = new List<SkillData>();
+        foreach (string skillId in currentUnit.SkillIds)
         {
-            if (unit.IsEnemy != currentUnit.IsEnemy && !unit.IsDead && !unit.HasLeftBattle)
-                result.Add(unit);
+            if (!skills.TryGetValue(skillId, out SkillData skill) ||
+                skill.UseType != SkillUseType.Active ||
+                !skillEffects.ContainsKey(skillId))
+                continue;
+            if (CanPayCost(currentUnit, skill))
+                result.Add(skill);
         }
         return result.AsReadOnly();
     }
@@ -133,6 +177,116 @@ public sealed class BattleSession
         return false;
     }
 
+    //행동 종류와 스킬 대상 방식에 맞는 실제 대상을 구함
+    private IReadOnlyList<BattleUnit> ResolveTargets(
+        BattleAction action, BattleUnit actor, SkillData skill)
+    {
+        if (action.Type == BattleActionType.Guard)
+            return Array.Empty<BattleUnit>();
+        if (action.Type == BattleActionType.BasicAttack)
+            return OneTarget(action.TargetId, actor, true);
+
+        switch (skill.TargetType)
+        {
+            case SkillTargetType.OneEnemy:
+                return OneTarget(action.TargetId, actor, true);
+            case SkillTargetType.AllEnemies:
+                CheckNoTargetId(action);
+                return GetUnitsBySide(true);
+            case SkillTargetType.OneAlly:
+                return OneTarget(action.TargetId, actor, false);
+            case SkillTargetType.AllAllies:
+                CheckNoTargetId(action);
+                return GetUnitsBySide(false);
+            case SkillTargetType.Self:
+                CheckNoTargetId(action);
+                return new[] { actor };
+            default:
+                throw new ArgumentOutOfRangeException(nameof(skill), "지원하지 않는 스킬 대상입니다.");
+        }
+    }
+
+    //ID로 살아 있는 한 명의 적 또는 아군을 구함
+    private IReadOnlyList<BattleUnit> OneTarget(
+        string targetId, BattleUnit actor, bool enemySide)
+    {
+        BattleDataChecks.CheckText(targetId);
+        if (!units.TryGetValue(targetId, out BattleUnit target) ||
+            target.IsDead || target.HasLeftBattle ||
+            (target.IsEnemy == actor.IsEnemy) == enemySide)
+            throw new InvalidOperationException("선택할 수 없는 대상입니다.");
+        return new[] { target };
+    }
+
+    //전체 대상이나 자기 대상 행동에 불필요한 대상 ID가 없는지 확인함
+    private static void CheckNoTargetId(BattleAction action)
+    {
+        if (action.TargetId != null)
+            throw new InvalidOperationException("이 스킬은 대상 ID를 직접 선택하지 않습니다.");
+    }
+
+    //현재 행동자 기준으로 같은 편 또는 상대편을 구함
+    private IReadOnlyList<BattleUnit> GetUnitsBySide(bool opponents)
+    {
+        if (currentUnit == null)
+            throw new InvalidOperationException("현재 행동자가 없습니다.");
+
+        var result = new List<BattleUnit>();
+        foreach (BattleTurnEntry entry in turnOrder.CurrentOrder)
+        {
+            BattleUnit unit = units[entry.UnitId];
+            bool otherSide = unit.IsEnemy != currentUnit.IsEnemy;
+            if (otherSide == opponents && !unit.IsDead && !unit.HasLeftBattle)
+                result.Add(unit);
+        }
+        return result.AsReadOnly();
+    }
+
+    //현재 전투원이 가진 실행 가능한 스킬을 확인함
+    private SkillData GetOwnedActiveSkill(BattleUnit actor, string skillId)
+    {
+        bool owned = false;
+        foreach (string ownedSkillId in actor.SkillIds)
+        {
+            if (!string.Equals(ownedSkillId, skillId, StringComparison.Ordinal))
+                continue;
+            owned = true;
+            break;
+        }
+
+        if (!owned || !skills.TryGetValue(skillId, out SkillData skill))
+            throw new InvalidOperationException("현재 전투원이 가진 스킬이 아닙니다.");
+        if (skill.UseType != SkillUseType.Active)
+            throw new InvalidOperationException("패시브 스킬은 행동으로 사용할 수 없습니다.");
+        if (!skillEffects.ContainsKey(skill.Id))
+            throw new InvalidOperationException("스킬에 실행 효과가 없습니다.");
+        return skill;
+    }
+
+    //스킬 비용을 지불할 수 있는지 확인함
+    private static bool CanPayCost(BattleUnit actor, SkillData skill)
+    {
+        switch (skill.CostType)
+        {
+            case SkillCostType.None:
+                return true;
+            case SkillCostType.Hp:
+                return BattleAttackCalculator.CanPayHp(actor,
+                    BattleAttackCalculator.CalculateHpCost(actor, skill.Cost));
+            case SkillCostType.Sp:
+                return BattleAttackCalculator.CanPaySp(actor, skill.Cost);
+            default:
+                throw new ArgumentOutOfRangeException(nameof(skill), "지원하지 않는 스킬 비용입니다.");
+        }
+    }
+
+    //스킬 비용이 부족하면 실행 전에 막음
+    private static void CheckCost(BattleUnit actor, SkillData skill)
+    {
+        if (!CanPayCost(actor, skill))
+            throw new InvalidOperationException("스킬 사용에 필요한 자원이 부족합니다.");
+    }
+
     //현재 행동을 끝내고 다음 차례를 받을 수 있게 함.
     private BattleState CompleteTurn()
     {
@@ -158,7 +312,7 @@ public sealed class BattleSession
             return;
         }
 
-        foreach (var unit in units.Values)
+        foreach (BattleUnit unit in units.Values)
         {
             if (unit.IsEnemy && !unit.IsDead && !unit.HasLeftBattle)
             {
@@ -189,7 +343,7 @@ public sealed class BattleSession
         var copy = new Dictionary<string, BattleUnit>(StringComparer.Ordinal);
         mainCharacter = null;
 
-        foreach (var unit in source)
+        foreach (BattleUnit unit in source)
         {
             if (unit == null)
                 throw new ArgumentException("전투원 목록에 빈 값이 있습니다.", nameof(source));
@@ -216,7 +370,7 @@ public sealed class BattleSession
     private void CheckOrderMembers()
     {
         var orderIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var entry in turnOrder.CurrentOrder)
+        foreach (BattleTurnEntry entry in turnOrder.CurrentOrder)
         {
             if (!orderIds.Add(entry.UnitId))
                 throw new ArgumentException("턴 순서에 중복된 전투원 ID가 있습니다.", nameof(turnOrder));

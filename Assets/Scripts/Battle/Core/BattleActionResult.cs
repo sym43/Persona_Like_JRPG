@@ -1,6 +1,63 @@
+using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
+
+/// <summary>
+/// 전투 행동 안에서 한 대상에게 적용된 한 번의 결과.
+/// </summary>
+public sealed class BattleImpactResult
+{
+    //스킬 효과 실행 순서. 일반 공격은 0
+    public int EffectOrder { get; }
+    //같은 효과 안의 타격 순서
+    public int HitNumber { get; }
+    //원래 공격이나 회복의 대상 ID
+    public string TargetUnitId { get; }
+    //반사까지 계산한 실제 적용 대상 ID
+    public string AffectedUnitId { get; }
+    //명중 여부
+    public bool Hit { get; }
+    //반사 전 공격에 실린 치명타 여부
+    public bool Critical { get; }
+    //원래 대상의 속성 상성
+    public ResistanceType? Resistance { get; }
+    //실제 적용 대상의 속성 상성
+    public ResistanceType? AppliedResistance { get; }
+    //화면에 표시할 피해량
+    public int Damage { get; }
+    //화면에 표시할 HP 회복량
+    public int Healing { get; }
+    //이번 결과로 실제 적용 대상이 다운됐는지
+    public bool Downed { get; }
+    //원래 대상이 방어 중이었는지
+    public bool Guarded { get; }
+    //적용 후 실제 대상의 HP
+    public int HpAfter { get; }
+
+    internal BattleImpactResult(int effectOrder, int hitNumber,
+        string targetUnitId, string affectedUnitId, bool hit, bool critical,
+        ResistanceType? resistance, ResistanceType? appliedResistance,
+        int damage, int healing, bool downed, bool guarded, int hpAfter)
+    {
+        EffectOrder = effectOrder;
+        HitNumber = hitNumber;
+        TargetUnitId = targetUnitId;
+        AffectedUnitId = affectedUnitId;
+        Hit = hit;
+        Critical = critical;
+        Resistance = resistance;
+        AppliedResistance = appliedResistance;
+        Damage = damage;
+        Healing = healing;
+        Downed = downed;
+        Guarded = guarded;
+        HpAfter = hpAfter;
+    }
+}
+
 /// <summary>
 /// 전투 행동으로 확정된 결과. <br/>
-/// 화면 연출은 이 값을 표시하고 피해를 다시 계산하지 않음.
+/// 화면 연출은 순서대로 Impacts를 표시하고 피해를 다시 계산하지 않음.
 /// </summary>
 public sealed class BattleActionResult
 {
@@ -8,50 +65,21 @@ public sealed class BattleActionResult
     public BattleActionType Type { get; }
     //행동자 ID
     public string UnitId { get; }
-    //대상 ID. 방어일 때는 없음
-    public string TargetId { get; }
-    //명중 여부
-    public bool Hit { get; }
-    //반사 전 공격에 실린 치명타 여부. 실제 피격자가 약점이면 피해에는 치명타 배율을 적용하지 않음
-    public bool Critical { get; }
-    //처음 공격한 대상의 속성 상성
-    public ResistanceType? Resistance { get; }
-    //실제로 피해나 회복을 받은 전투원의 속성 상성
-    public ResistanceType? AppliedResistance { get; }
-    //실제로 HP가 변한 전투원 ID. 방어와 반사는 행동자일 수 있음
-    public string AffectedUnitId { get; }
-    //화면에 표시할 피해량
-    public int Damage { get; }
-    //화면에 표시할 HP 회복량
-    public int Healing { get; }
-    //이번 행동으로 대상이 다운됐는지
-    public bool DownedTarget { get; }
-    //반사로 행동자가 다운됐는지
-    public bool DownedActor { get; }
-    //대상이 방어 중이었는지
-    public bool Guarded { get; }
-    //적용 후 AffectedUnitId의 HP
-    public int HpAfter { get; }
+    //사용한 스킬 ID. 스킬 행동이 아니면 없음
+    public string SkillId { get; }
+    //효과와 다중 타격을 실행한 순서대로 담은 결과
+    public IReadOnlyList<BattleImpactResult> Impacts { get; }
 
-    internal BattleActionResult(BattleActionType type, string unitId, string targetId,
-        bool hit, bool critical, ResistanceType? resistance, int damage,
-        bool downedTarget, bool guarded, int hpAfter,
-        string affectedUnitId = null, int healing = 0, bool downedActor = false,
-        ResistanceType? appliedResistance = null)
+    internal BattleActionResult(BattleActionType type, string unitId,
+        string skillId, IEnumerable<BattleImpactResult> impacts)
     {
+        if (impacts == null)
+            throw new ArgumentNullException(nameof(impacts), "행동 결과 목록이 필요합니다.");
+
         Type = type;
         UnitId = unitId;
-        TargetId = targetId;
-        Hit = hit;
-        Critical = critical;
-        Resistance = resistance;
-        AppliedResistance = appliedResistance ?? resistance;
-        AffectedUnitId = affectedUnitId ?? targetId ?? unitId;
-        Damage = damage;
-        Healing = healing;
-        DownedTarget = downedTarget;
-        DownedActor = downedActor;
-        Guarded = guarded;
-        HpAfter = hpAfter;
+        SkillId = skillId;
+        Impacts = new ReadOnlyCollection<BattleImpactResult>(
+            new List<BattleImpactResult>(impacts));
     }
 }
