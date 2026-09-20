@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 
 /// <summary>
@@ -10,7 +11,8 @@ public enum BattlePhase
     ChoosingAction = 1,
     PlayingAction = 2,
     ShowingResult = 3,
-    Ended = 4
+    ChoosingAllOutAttack = 4,
+    Ended = 5
 }
 
 /// <summary>
@@ -22,13 +24,18 @@ public sealed class BattleController : MonoBehaviour
     private BattleSession session;
     private EnemyActionSelector enemySelector;
     private BattleAction pendingAction;
+    private BattleActionResult lastActionResult;
 
     //플레이어가 행동을 선택해야 하는 차례
     public event Action<BattleUnit> PlayerTurnStarted;
+    //원모어로 추가 행동을 시작한 전투원
+    public event Action<BattleUnit> OneMoreStarted;
     //선택한 행동의 연출을 시작할 때 전달함
     public event Action<BattleAction> ActionStarted;
     //연출에 전달할 확정 행동 결과
     public event Action<BattleActionResult> ActionResolved;
+    //총공격을 선택할 수 있을 때 참여 가능한 아군과 함께 알림
+    public event Action<IReadOnlyList<BattleUnit>> AllOutAttackAvailable;
     //전투가 끝났을 때의 상태
     public event Action<BattleState> BattleEnded;
 
@@ -60,6 +67,48 @@ public sealed class BattleController : MonoBehaviour
         RunAction(action);
     }
 
+    //현재 원모어를 선택한 아군에게 넘김
+    public void SubmitShift(string unitId)
+    {
+        if (session == null || Phase != BattlePhase.ChoosingAction ||
+            !session.IsOneMoreTurn || session.CurrentUnit == null ||
+            session.CurrentUnit.IsEnemy)
+            throw new InvalidOperationException("현재 시프트할 수 있는 차례가 아닙니다.");
+
+        BattleUnit unit = session.ShiftOneMoreTo(unitId);
+        OneMoreStarted?.Invoke(unit);
+        PlayerTurnStarted?.Invoke(unit);
+    }
+
+    //현재 시프트할 수 있는 아군을 구함
+    public IReadOnlyList<BattleUnit> GetShiftTargets()
+    {
+        return session?.GetShiftTargets() ?? Array.Empty<BattleUnit>();
+    }
+
+    //제안된 총공격을 실행하거나 거절함
+    public void SubmitAllOutAttack(bool useAllOutAttack)
+    {
+        if (session == null || Phase != BattlePhase.ChoosingAllOutAttack ||
+            !session.CanStartAllOutAttack)
+            throw new InvalidOperationException("현재 총공격을 선택할 수 없습니다.");
+
+        if (!useAllOutAttack)
+        {
+            session.DeclineAllOutAttack();
+            CompleteAction();
+            return;
+        }
+
+        pendingAction = new BattleAction(
+            session.CurrentUnit.BattleId, BattleActionType.AllOutAttack);
+        Phase = BattlePhase.PlayingAction;
+        if (ActionStarted == null)
+            ExecuteAction();
+        else
+            ActionStarted.Invoke(pendingAction);
+    }
+
     //애니메이션·카메라 연출이 끝났을 때 호출함
     public void FinishAction()
     {
@@ -67,11 +116,23 @@ public sealed class BattleController : MonoBehaviour
             throw new InvalidOperationException("마무리할 행동 결과가 없습니다.");
         if (pendingAction != null)
             throw new InvalidOperationException("타격 판정을 먼저 완료해야 합니다.");
-        BattleState state = session.FinishAction();
-        if (state == BattleState.Ongoing)
-            StartNextTurn();
-        else
-            EndBattle(state);
+        if (lastActionResult == null)
+            throw new InvalidOperationException("마무리할 행동 결과가 없습니다.");
+
+        if (lastActionResult.Type != BattleActionType.AllOutAttack &&
+            session.CanStartAllOutAttack)
+        {
+            Phase = BattlePhase.ChoosingAllOutAttack;
+            IReadOnlyList<BattleUnit> participants =
+                session.GetAllOutAttackParticipants();
+            if (AllOutAttackAvailable == null)
+                SubmitAllOutAttack(false);
+            else
+                AllOutAttackAvailable.Invoke(participants);
+            return;
+        }
+
+        CompleteAction();
     }
 
     //공격이 닿거나 방어가 시작되는 연출 시점에 행동을 적용함
@@ -80,8 +141,12 @@ public sealed class BattleController : MonoBehaviour
         if (session == null || Phase != BattlePhase.PlayingAction || pendingAction == null)
             throw new InvalidOperationException("적용할 행동이 없습니다.");
 
-        BattleActionResult result = session.Execute(pendingAction);
+        BattleAction action = pendingAction;
+        BattleActionResult result = action.Type == BattleActionType.AllOutAttack
+            ? session.ExecuteAllOutAttack()
+            : session.Execute(action);
         pendingAction = null;
+        lastActionResult = result;
         Phase = BattlePhase.ShowingResult;
         if (ActionResolved == null)
             FinishAction();
@@ -99,6 +164,9 @@ public sealed class BattleController : MonoBehaviour
         }
 
         Phase = BattlePhase.ChoosingAction;
+        if (session.IsOneMoreTurn)
+            OneMoreStarted?.Invoke(unit);
+
         if (!unit.IsEnemy)
         {
             PlayerTurnStarted?.Invoke(unit);
@@ -122,6 +190,17 @@ public sealed class BattleController : MonoBehaviour
             ActionStarted.Invoke(action);
     }
 
+    //현재 행동과 선택 가능한 후속 처리를 끝내고 다음 차례로 이동함
+    private void CompleteAction()
+    {
+        BattleState state = session.FinishAction();
+        lastActionResult = null;
+        if (state == BattleState.Ongoing)
+            StartNextTurn();
+        else
+            EndBattle(state);
+    }
+
     //전투 상태를 알리고 현재 전투 참조를 정리함
     private void EndBattle(BattleState state)
     {
@@ -130,5 +209,6 @@ public sealed class BattleController : MonoBehaviour
         session = null;
         enemySelector = null;
         pendingAction = null;
+        lastActionResult = null;
     }
 }

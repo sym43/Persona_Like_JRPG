@@ -7,7 +7,8 @@ public enum BattleActionType
 {
     BasicAttack = 0,
     Skill = 1,
-    Guard = 2
+    Guard = 2,
+    AllOutAttack = 3
 }
 
 /// <summary>
@@ -44,7 +45,7 @@ public sealed class BattleAction
         }
         else if (targetId != null || skillId != null)
         {
-            throw new ArgumentException("방어에는 대상이나 스킬 ID가 필요하지 않습니다.");
+            throw new ArgumentException("방어와 총공격에는 대상이나 스킬 ID가 필요하지 않습니다.");
         }
 
         UnitId = unitId;

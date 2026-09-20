@@ -58,6 +58,26 @@ public static class BattleAttackCalculator
             - (basicAttack ? 0d : 10d)) * affinityMultiplier);
     }
 
+    //주인공의 무기와 능력치로 총공격 기본 피해를 계산함
+    public static int CalculateAllOutAttackBaseDamage(BattleUnit mainCharacter,
+        BattleUnit target, int participantCount, double levelMultiplier)
+    {
+        if (mainCharacter == null)
+            throw new ArgumentNullException(nameof(mainCharacter), "주인공이 필요합니다.");
+        if (target == null)
+            throw new ArgumentNullException(nameof(target), "총공격 대상이 필요합니다.");
+        if (mainCharacter.BasicAttack == null)
+            throw new InvalidOperationException("주인공의 장착 무기 공격력이 필요합니다.");
+        if (participantCount < 2)
+            throw new ArgumentOutOfRangeException(nameof(participantCount), "총공격에는 두 명 이상이 참여해야 합니다.");
+        CheckMultiplier(levelMultiplier, nameof(levelMultiplier));
+
+        double power = mainCharacter.BasicAttack.Power / 2d;
+        return (int)Math.Truncate(Math.Sqrt(power * 15d *
+            mainCharacter.Stats.Strength / target.Stats.Endurance) *
+            1.6d * levelMultiplier * levelMultiplier * participantCount);
+    }
+
     //일반 상성의 피해 배율을 구함. 무효·반사·흡수는 별도 처리해야 함
     public static double GetAffinityMultiplier(ResistanceType resistance)
     {

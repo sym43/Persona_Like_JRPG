@@ -27,6 +27,8 @@ public sealed class BattleSession
     private int orderIndex = -1;
     private BattleUnit currentUnit;
     private bool actionExecuted;
+    private string pendingOneMoreUnitId;
+    private bool allOutAttackAvailable;
 
     //현재 전투 순환 번호
     public int Round { get; private set; } = 1;
@@ -34,6 +36,10 @@ public sealed class BattleSession
     public BattleUnit CurrentUnit => currentUnit;
     //현재 행동이 적용되고 차례 종료를 기다리는지
     public bool ActionExecuted => actionExecuted;
+    //현재 행동이 원모어로 받은 추가 행동인지
+    public bool IsOneMoreTurn { get; private set; }
+    //현재 행동 결과에서 총공격을 선택할 수 있는지
+    public bool CanStartAllOutAttack => allOutAttackAvailable;
     //현재 전투 상태
     public BattleState State { get; private set; } = BattleState.Ongoing;
 
@@ -83,6 +89,8 @@ public sealed class BattleSession
             throw new InvalidOperationException("현재 행동은 이미 실행됐습니다.");
         if (!string.Equals(action.UnitId, currentUnit.BattleId, StringComparison.Ordinal))
             throw new InvalidOperationException("현재 행동자와 명령의 전투원 ID가 다릅니다.");
+        if (action.Type == BattleActionType.AllOutAttack)
+            throw new InvalidOperationException("총공격은 총공격 선택 흐름에서 실행해야 합니다.");
 
         SkillData skill = null;
         IReadOnlyList<SkillEffectData> effects = null;
@@ -96,8 +104,83 @@ public sealed class BattleSession
         IReadOnlyList<BattleUnit> targets = ResolveTargets(action, currentUnit, skill);
         BattleActionResult result = actionExecutor.Execute(
             action, currentUnit, targets, skill, effects);
+        pendingOneMoreUnitId = result.OneMoreUnitId;
+        allOutAttackAvailable = CanOfferAllOutAttack(result);
         actionExecuted = true;
         return result;
+    }
+
+    //원모어를 넘길 수 있는 살아 있는 아군을 구함
+    public IReadOnlyList<BattleUnit> GetShiftTargets()
+    {
+        if (currentUnit == null || !IsOneMoreTurn || actionExecuted || currentUnit.IsEnemy)
+            return Array.Empty<BattleUnit>();
+
+        var result = new List<BattleUnit>();
+        foreach (BattleTurnEntry entry in turnOrder.CurrentOrder)
+        {
+            BattleUnit unit = units[entry.UnitId];
+            if (!unit.IsEnemy && !unit.IsDead && !unit.HasLeftBattle &&
+                !string.Equals(unit.BattleId, currentUnit.BattleId,
+                    StringComparison.Ordinal))
+                result.Add(unit);
+        }
+        return result.AsReadOnly();
+    }
+
+    //현재 원모어 행동을 선택한 아군에게 넘김
+    public BattleUnit ShiftOneMoreTo(string unitId)
+    {
+        BattleDataChecks.CheckText(unitId);
+        foreach (BattleUnit unit in GetShiftTargets())
+        {
+            if (!string.Equals(unit.BattleId, unitId, StringComparison.Ordinal))
+                continue;
+
+            currentUnit = unit;
+            return unit;
+        }
+
+        throw new InvalidOperationException("현재 시프트할 수 없는 전투원입니다.");
+    }
+
+    //총공격에 참여할 수 있는 살아 있는 아군을 구함
+    public IReadOnlyList<BattleUnit> GetAllOutAttackParticipants()
+    {
+        if (currentUnit == null || currentUnit.IsEnemy)
+            return Array.Empty<BattleUnit>();
+
+        var result = new List<BattleUnit>();
+        foreach (BattleTurnEntry entry in turnOrder.CurrentOrder)
+        {
+            BattleUnit unit = units[entry.UnitId];
+            if (!unit.IsEnemy && !unit.IsDead && !unit.IsDown &&
+                !unit.HasLeftBattle)
+                result.Add(unit);
+        }
+        return result.AsReadOnly();
+    }
+
+    //현재 총공격 선택을 거절하고 원모어를 유지함
+    public void DeclineAllOutAttack()
+    {
+        if (!allOutAttackAvailable)
+            throw new InvalidOperationException("현재 선택할 수 있는 총공격이 없습니다.");
+        allOutAttackAvailable = false;
+    }
+
+    //현재 행동자가 시작한 총공격을 실행함
+    public BattleActionResult ExecuteAllOutAttack()
+    {
+        if (!allOutAttackAvailable || currentUnit == null || currentUnit.IsEnemy)
+            throw new InvalidOperationException("현재 총공격을 실행할 수 없습니다.");
+
+        IReadOnlyList<BattleUnit> participants = GetAllOutAttackParticipants();
+        IReadOnlyList<BattleUnit> targets = GetUnitsBySide(true);
+        allOutAttackAvailable = false;
+        pendingOneMoreUnitId = null;
+        return actionExecutor.ExecuteAllOutAttack(currentUnit, mainCharacter,
+            targets, participants.Count);
     }
 
     //실행한 행동을 마무리하고 현재 차례를 끝냄
@@ -105,6 +188,8 @@ public sealed class BattleSession
     {
         if (!actionExecuted)
             throw new InvalidOperationException("마무리할 행동이 없습니다.");
+        if (allOutAttackAvailable)
+            throw new InvalidOperationException("총공격 실행 여부를 먼저 선택해야 합니다.");
         return CompleteTurn();
     }
 
@@ -154,6 +239,11 @@ public sealed class BattleSession
         if (State != BattleState.Ongoing)
             return false;
 
+        if (TryStartOneMore(out unit))
+            return true;
+
+        IsOneMoreTurn = false;
+
         int checkedEntries = 0;
         while (checkedEntries < turnOrder.CurrentOrder.Count)
         {
@@ -175,6 +265,25 @@ public sealed class BattleSession
 
         UpdateOutcome();
         return false;
+    }
+
+    //대기 중인 원모어가 있으면 기존 턴 순서를 움직이지 않고 추가 행동을 시작함
+    private bool TryStartOneMore(out BattleUnit unit)
+    {
+        unit = null;
+        if (pendingOneMoreUnitId == null)
+            return false;
+
+        string unitId = pendingOneMoreUnitId;
+        pendingOneMoreUnitId = null;
+        BattleUnit oneMoreUnit = units[unitId];
+        if (oneMoreUnit.IsDead || oneMoreUnit.HasLeftBattle)
+            return false;
+
+        currentUnit = oneMoreUnit;
+        IsOneMoreTurn = true;
+        unit = oneMoreUnit;
+        return true;
     }
 
     //행동 종류와 스킬 대상 방식에 맞는 실제 대상을 구함
@@ -299,8 +408,37 @@ public sealed class BattleSession
 
         currentUnit = null;
         actionExecuted = false;
+        IsOneMoreTurn = false;
+        allOutAttackAvailable = false;
         UpdateOutcome();
         return State;
+    }
+
+    //이번 아군 행동으로 원모어를 얻고 살아 있는 모든 적이 다운됐는지 확인함
+    private bool CanOfferAllOutAttack(BattleActionResult result)
+    {
+        if (currentUnit.IsEnemy ||
+            !string.Equals(result.OneMoreUnitId, currentUnit.BattleId,
+                StringComparison.Ordinal))
+            return false;
+        if (mainCharacter.IsDown || mainCharacter.HasLeftBattle)
+            return false;
+
+        int participantCount = GetAllOutAttackParticipants().Count;
+        if (participantCount < 2)
+            return false;
+
+        bool foundEnemy = false;
+        foreach (BattleUnit unit in units.Values)
+        {
+            if (!unit.IsEnemy || unit.IsDead || unit.HasLeftBattle)
+                continue;
+
+            foundEnemy = true;
+            if (!unit.IsDown)
+                return false;
+        }
+        return foundEnemy;
     }
 
     //전투 결과를 다시 계산함.
@@ -309,6 +447,8 @@ public sealed class BattleSession
         if (mainCharacter.IsDead)
         {
             State = BattleState.Defeat;
+            pendingOneMoreUnitId = null;
+            allOutAttackAvailable = false;
             return;
         }
 
@@ -322,6 +462,8 @@ public sealed class BattleSession
         }
 
         State = BattleState.Victory;
+        pendingOneMoreUnitId = null;
+        allOutAttackAvailable = false;
     }
 
     //순환 안에서 다음 순서 위치로 이동함.

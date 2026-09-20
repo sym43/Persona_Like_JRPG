@@ -67,18 +67,24 @@ public sealed class BattleActionResult
     public string UnitId { get; }
     //사용한 스킬 ID. 스킬 행동이 아니면 없음
     public string SkillId { get; }
+    //이번 행동으로 원모어를 받아 추가 행동할 전투원 ID. 없으면 비어 있음
+    public string OneMoreUnitId { get; }
     //효과와 다중 타격을 실행한 순서대로 담은 결과
     public IReadOnlyList<BattleImpactResult> Impacts { get; }
 
     internal BattleActionResult(BattleActionType type, string unitId,
-        string skillId, IEnumerable<BattleImpactResult> impacts)
+        string skillId, string oneMoreUnitId,
+        IEnumerable<BattleImpactResult> impacts)
     {
         if (impacts == null)
             throw new ArgumentNullException(nameof(impacts), "행동 결과 목록이 필요합니다.");
+        if (oneMoreUnitId != null)
+            BattleDataChecks.CheckText(oneMoreUnitId);
 
         Type = type;
         UnitId = unitId;
         SkillId = skillId;
+        OneMoreUnitId = oneMoreUnitId;
         Impacts = new ReadOnlyCollection<BattleImpactResult>(
             new List<BattleImpactResult>(impacts));
     }

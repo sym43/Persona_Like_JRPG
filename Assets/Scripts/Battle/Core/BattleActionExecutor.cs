@@ -38,11 +38,48 @@ internal sealed class BattleActionExecutor
                 return UseSkill(actor, targets, skill, effects);
             case BattleActionType.Guard:
                 actor.StartGuard();
-                return new BattleActionResult(action.Type, actor.BattleId,
+                return CreateResult(action.Type, actor.BattleId,
                     null, Array.Empty<BattleImpactResult>());
+            case BattleActionType.AllOutAttack:
+                throw new InvalidOperationException("총공격은 전투 세션의 총공격 흐름에서 실행해야 합니다.");
             default:
                 throw new ArgumentOutOfRangeException(nameof(action), "지원하지 않는 전투 행동입니다.");
         }
+    }
+
+    //참여한 아군 수와 주인공 능력치로 총공격을 실행함
+    public BattleActionResult ExecuteAllOutAttack(BattleUnit initiator,
+        BattleUnit mainCharacter, IReadOnlyList<BattleUnit> targets,
+        int participantCount)
+    {
+        if (initiator == null)
+            throw new ArgumentNullException(nameof(initiator), "총공격을 시작한 전투원이 필요합니다.");
+        if (mainCharacter == null)
+            throw new ArgumentNullException(nameof(mainCharacter), "주인공이 필요합니다.");
+        if (targets == null)
+            throw new ArgumentNullException(nameof(targets), "총공격 대상 목록이 필요합니다.");
+        if (initiator.IsEnemy || mainCharacter.IsEnemy)
+            throw new InvalidOperationException("적은 총공격을 사용할 수 없습니다.");
+
+        var impacts = new List<BattleImpactResult>();
+        foreach (BattleUnit target in targets)
+        {
+            if (target.IsDead || target.HasLeftBattle)
+                continue;
+
+            double levelMultiplier = BattleAttackCalculator.GetLevelMultiplier(
+                mainCharacter.Level, target.Level, bossBattle);
+            int baseDamage = BattleAttackCalculator.CalculateAllOutAttackBaseDamage(
+                mainCharacter, target, participantCount, levelMultiplier);
+            int damage = BattleAttackCalculator.CalculateDamage(
+                baseDamage, 1d, random.Next(95, 106));
+            target.TakeDamage(damage);
+            impacts.Add(CreateImpact(0, 1, target, target,
+                true, false, null, null, damage, 0, false, false));
+        }
+
+        return CreateResult(BattleActionType.AllOutAttack,
+            initiator.BattleId, null, impacts);
     }
 
     //일반 공격을 계산해 대상에게 적용함
@@ -59,7 +96,7 @@ internal sealed class BattleActionExecutor
         var impacts = new List<BattleImpactResult>();
         ResolveAttack(actor, target, attack.DamageType, attack.Power,
             attack.Accuracy, 1, 3, true, 0, impacts);
-        return new BattleActionResult(BattleActionType.BasicAttack,
+        return CreateResult(BattleActionType.BasicAttack,
             actor.BattleId, null, impacts);
     }
 
@@ -96,7 +133,7 @@ internal sealed class BattleActionExecutor
             }
         }
 
-        return new BattleActionResult(BattleActionType.Skill,
+        return CreateResult(BattleActionType.Skill,
             actor.BattleId, skill.Id, impacts);
     }
 
@@ -247,5 +284,44 @@ internal sealed class BattleActionExecutor
             target.BattleId, receiver.BattleId, hit, critical,
             resistance, appliedResistance, damage, healing,
             downed, guarded, receiver.Hp);
+    }
+
+    //행동 결과와 원모어를 받을 전투원을 함께 정리함
+    private static BattleActionResult CreateResult(BattleActionType type,
+        string unitId, string skillId, IReadOnlyList<BattleImpactResult> impacts)
+    {
+        return new BattleActionResult(type, unitId, skillId,
+            FindOneMoreUnitId(unitId, impacts), impacts);
+    }
+
+    //약점 결과를 치명타보다 먼저 확인해 원모어 대상을 찾음
+    private static string FindOneMoreUnitId(string unitId,
+        IReadOnlyList<BattleImpactResult> impacts)
+    {
+        foreach (BattleImpactResult impact in impacts)
+        {
+            bool weakDownOrDefeat = impact.AppliedResistance == ResistanceType.Weak &&
+                                    (impact.Downed || impact.HpAfter == 0);
+            if (weakDownOrDefeat)
+                return GetOneMoreUnitId(unitId, impact);
+        }
+
+        foreach (BattleImpactResult impact in impacts)
+        {
+            if (impact.Critical && impact.Downed)
+                return GetOneMoreUnitId(unitId, impact);
+        }
+
+        return null;
+    }
+
+    //반사 공격이면 원래 대상, 그 외에는 공격자가 원모어를 받음
+    private static string GetOneMoreUnitId(string unitId,
+        BattleImpactResult impact)
+    {
+        return string.Equals(impact.AffectedUnitId, unitId,
+            StringComparison.Ordinal)
+            ? impact.TargetUnitId
+            : unitId;
     }
 }
