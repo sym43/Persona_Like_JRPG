@@ -8,7 +8,11 @@ public enum BattleActionType
     BasicAttack = 0,
     Skill = 1,
     Guard = 2,
-    AllOutAttack = 3
+    AllOutAttack = 3,
+    Skip = 4,
+    Escape = 5,
+    UseRandomItem = 6,
+    DiscardMoney = 7
 }
 
 /// <summary>
@@ -24,10 +28,13 @@ public sealed class BattleAction
     public string TargetId { get; }
     //사용할 스킬 ID. 스킬 행동이 아니면 없음
     public string SkillId { get; }
+    //매혹으로 원래 대상 진영을 반대로 바꾸는지
+    public bool ReverseTargetSide { get; }
 
     //선택한 행동을 만듦
     public BattleAction(string unitId, BattleActionType type,
-        string targetId = null, string skillId = null)
+        string targetId = null, string skillId = null,
+        bool reverseTargetSide = false)
     {
         BattleDataChecks.CheckText(unitId);
         if (!Enum.IsDefined(typeof(BattleActionType), type))
@@ -45,12 +52,17 @@ public sealed class BattleAction
         }
         else if (targetId != null || skillId != null)
         {
-            throw new ArgumentException("방어와 총공격에는 대상이나 스킬 ID가 필요하지 않습니다.");
+            throw new ArgumentException("이 행동에는 대상이나 스킬 ID가 필요하지 않습니다.");
         }
+        if (reverseTargetSide && type != BattleActionType.BasicAttack &&
+            type != BattleActionType.Skill)
+            throw new ArgumentException("공격과 스킬만 대상 진영을 바꿀 수 있습니다.",
+                nameof(reverseTargetSide));
 
         UnitId = unitId;
         Type = type;
         TargetId = targetId;
         SkillId = skillId;
+        ReverseTargetSide = reverseTargetSide;
     }
 }

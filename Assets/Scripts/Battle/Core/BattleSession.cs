@@ -21,14 +21,17 @@ public sealed class BattleSession
     private readonly Dictionary<string, BattleUnit> units;
     private readonly IReadOnlyDictionary<string, SkillData> skills;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects;
+    private readonly IReadOnlyDictionary<string, BattleEffectData> battleEffects;
     private readonly BattleUnit mainCharacter;
     private readonly BattleActionExecutor actionExecutor;
+    private readonly Random random;
 
     private int orderIndex = -1;
     private BattleUnit currentUnit;
     private bool actionExecuted;
     private string pendingOneMoreUnitId;
     private bool allOutAttackAvailable;
+    private BattleAction mentalAction;
 
     //현재 전투 순환 번호
     public int Round { get; private set; } = 1;
@@ -43,6 +46,13 @@ public sealed class BattleSession
     //현재 전투 상태
     public BattleState State { get; private set; } = BattleState.Ongoing;
 
+    //정신 상태로 이미 정해진 행동을 구함
+    public bool TryGetMentalAction(out BattleAction action)
+    {
+        action = mentalAction;
+        return action != null;
+    }
+
     //스킬 없이 기본 행동만 가능한 전투를 만듦
     public BattleSession(BattleTurnOrder turnOrder, IEnumerable<BattleUnit> units,
         Random random, bool bossBattle = false)
@@ -50,6 +60,8 @@ public sealed class BattleSession
             new ReadOnlyDictionary<string, SkillData>(new Dictionary<string, SkillData>()),
             new ReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>>(
                 new Dictionary<string, IReadOnlyList<SkillEffectData>>()),
+            new ReadOnlyDictionary<string, BattleEffectData>(
+                new Dictionary<string, BattleEffectData>()),
             random, bossBattle)
     {
     }
@@ -58,6 +70,7 @@ public sealed class BattleSession
     public BattleSession(BattleTurnOrder turnOrder, IEnumerable<BattleUnit> units,
         IReadOnlyDictionary<string, SkillData> skills,
         IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
+        IReadOnlyDictionary<string, BattleEffectData> battleEffects,
         Random random, bool bossBattle = false)
     {
         #region 입력값 검사
@@ -66,6 +79,7 @@ public sealed class BattleSession
         if (units == null) throw new ArgumentNullException(nameof(units), "전투원 목록이 필요합니다.");
         if (skills == null) throw new ArgumentNullException(nameof(skills), "스킬 목록이 필요합니다.");
         if (skillEffects == null) throw new ArgumentNullException(nameof(skillEffects), "스킬 효과 목록이 필요합니다.");
+        if (battleEffects == null) throw new ArgumentNullException(nameof(battleEffects), "전투 효과 목록이 필요합니다.");
         if (random == null) throw new ArgumentNullException(nameof(random), "행동 난수 생성기가 필요합니다.");
 
         #endregion
@@ -74,7 +88,9 @@ public sealed class BattleSession
         this.units = CopyUnits(units, out mainCharacter);
         this.skills = skills;
         this.skillEffects = skillEffects;
-        actionExecutor = new BattleActionExecutor(random, bossBattle);
+        this.battleEffects = battleEffects;
+        this.random = random;
+        actionExecutor = new BattleActionExecutor(random, bossBattle, battleEffects);
         CheckOrderMembers();
         UpdateOutcome();
     }
@@ -91,6 +107,8 @@ public sealed class BattleSession
             throw new InvalidOperationException("현재 행동자와 명령의 전투원 ID가 다릅니다.");
         if (action.Type == BattleActionType.AllOutAttack)
             throw new InvalidOperationException("총공격은 총공격 선택 흐름에서 실행해야 합니다.");
+        if (mentalAction != null && !IsSameAction(action, mentalAction))
+            throw new InvalidOperationException("정신 상태로 정해진 행동만 실행할 수 있습니다.");
 
         SkillData skill = null;
         IReadOnlyList<SkillEffectData> effects = null;
@@ -107,6 +125,7 @@ public sealed class BattleSession
         pendingOneMoreUnitId = result.OneMoreUnitId;
         allOutAttackAvailable = CanOfferAllOutAttack(result);
         actionExecuted = true;
+        mentalAction = null;
         return result;
     }
 
@@ -138,6 +157,7 @@ public sealed class BattleSession
                 continue;
 
             currentUnit = unit;
+            mentalAction = ChooseMentalAction(unit);
             return unit;
         }
 
@@ -255,10 +275,14 @@ public sealed class BattleSession
             if (nextUnitInOrder.IsDead || nextUnitInOrder.HasLeftBattle)
                 continue;
 
-            //자기 차례가 다시 시작되면 이전 방어를 끝냄.
+            //기본 행동 시작에 방어와 정신 상태 경과를 처리함.
             nextUnitInOrder.EndGuard();
-            nextUnitInOrder.RecoverFromDown();
+            nextUnitInOrder.AdvanceMentalStates(random);
+            if (!nextUnitInOrder.HasEffect(BattleEffectType.Thrill) &&
+                !nextUnitInOrder.HasEffect(BattleEffectType.Intimidation))
+                nextUnitInOrder.RecoverFromDown();
             currentUnit = nextUnitInOrder;
+            mentalAction = ChooseMentalAction(nextUnitInOrder);
             unit = nextUnitInOrder;
             return true;
         }
@@ -282,6 +306,7 @@ public sealed class BattleSession
 
         currentUnit = oneMoreUnit;
         IsOneMoreTurn = true;
+        mentalAction = ChooseMentalAction(oneMoreUnit);
         unit = oneMoreUnit;
         return true;
     }
@@ -292,22 +317,29 @@ public sealed class BattleSession
     {
         if (action.Type == BattleActionType.Guard)
             return Array.Empty<BattleUnit>();
+        if (action.Type == BattleActionType.Skip ||
+            action.Type == BattleActionType.Escape ||
+            action.Type == BattleActionType.UseRandomItem ||
+            action.Type == BattleActionType.DiscardMoney)
+            return Array.Empty<BattleUnit>();
         if (action.Type == BattleActionType.BasicAttack)
-            return OneTarget(action.TargetId, actor, true);
+            return GetTarget(action.TargetId, actor, !action.ReverseTargetSide);
 
         switch (skill.TargetType)
         {
             case SkillTargetType.OneEnemy:
-                return OneTarget(action.TargetId, actor, true);
+                return GetTarget(action.TargetId, actor, !action.ReverseTargetSide);
             case SkillTargetType.AllEnemies:
                 CheckNoTargetId(action);
-                return GetUnitsBySide(true);
+                return GetUnitsBySide(!action.ReverseTargetSide);
             case SkillTargetType.OneAlly:
-                return OneTarget(action.TargetId, actor, false);
+                return GetTarget(action.TargetId, actor, action.ReverseTargetSide);
             case SkillTargetType.AllAllies:
                 CheckNoTargetId(action);
-                return GetUnitsBySide(false);
+                return GetUnitsBySide(action.ReverseTargetSide);
             case SkillTargetType.Self:
+                if (action.ReverseTargetSide)
+                    throw new InvalidOperationException("자기 대상 스킬은 대상 진영을 바꿀 수 없습니다.");
                 CheckNoTargetId(action);
                 return new[] { actor };
             default:
@@ -316,13 +348,16 @@ public sealed class BattleSession
     }
 
     //ID로 살아 있는 한 명의 적 또는 아군을 구함
-    private IReadOnlyList<BattleUnit> OneTarget(
-        string targetId, BattleUnit actor, bool enemySide)
+    private IReadOnlyList<BattleUnit> GetTarget(
+        string targetId, BattleUnit actor, bool targetOpponent)
     {
         BattleDataChecks.CheckText(targetId);
         if (!units.TryGetValue(targetId, out BattleUnit target) ||
-            target.IsDead || target.HasLeftBattle ||
-            (target.IsEnemy == actor.IsEnemy) == enemySide)
+            target.IsDead || target.HasLeftBattle)
+            throw new InvalidOperationException("선택할 수 없는 대상입니다.");
+
+        bool isOpponent = target.IsEnemy != actor.IsEnemy;
+        if (isOpponent != targetOpponent)
             throw new InvalidOperationException("선택할 수 없는 대상입니다.");
         return new[] { target };
     }
@@ -396,6 +431,159 @@ public sealed class BattleSession
             throw new InvalidOperationException("스킬 사용에 필요한 자원이 부족합니다.");
     }
 
+    //현재 정신 상태가 강제하는 행동을 한 번만 정함
+    private BattleAction ChooseMentalAction(BattleUnit actor)
+    {
+        if (actor.HasEffect(BattleEffectType.Thrill) ||
+            actor.HasEffect(BattleEffectType.Intimidation))
+            return new BattleAction(actor.BattleId, BattleActionType.Skip);
+        if (actor.HasEffect(BattleEffectType.Berserk))
+            return ChooseBerserkAction(actor);
+        if (actor.HasEffect(BattleEffectType.Intoxication))
+            return ChooseIntoxicationAction(actor);
+        if (actor.HasEffect(BattleEffectType.Panic))
+            return ChoosePanicAction(actor);
+        if (actor.HasEffect(BattleEffectType.Charm))
+            return ChooseCharmAction(actor);
+        return null;
+    }
+
+    //폭주는 무작위 상대에게 일반 공격함
+    private BattleAction ChooseBerserkAction(BattleUnit actor)
+    {
+        IReadOnlyList<BattleUnit> targets = GetUnitsBySide(true);
+        if (actor.BasicAttack == null || targets.Count == 0)
+            return new BattleAction(actor.BattleId, BattleActionType.Skip);
+        BattleUnit target = targets[random.Next(targets.Count)];
+        return new BattleAction(actor.BattleId, BattleActionType.BasicAttack,
+            target.BattleId);
+    }
+
+    //도취는 세 행동을 같은 확률로 선택함
+    private BattleAction ChooseIntoxicationAction(BattleUnit actor)
+    {
+        switch (random.Next(3))
+        {
+            case 0:
+                return new BattleAction(actor.BattleId, BattleActionType.UseRandomItem);
+            case 1:
+                return new BattleAction(actor.BattleId, BattleActionType.DiscardMoney);
+            default:
+                return new BattleAction(actor.BattleId, BattleActionType.Skip);
+        }
+    }
+
+    //공황은 10% 확률로 도주하고 주인공은 도주하지 않음
+    private BattleAction ChoosePanicAction(BattleUnit actor)
+    {
+        bool canEscape = actor.Data.Role != UnitRole.MainCharacter;
+        BattleActionType actionType = canEscape && random.Next(100) < 10
+            ? BattleActionType.Escape
+            : BattleActionType.Skip;
+        return new BattleAction(actor.BattleId, actionType);
+    }
+
+    //매혹은 가능한 아군 공격·적 회복·적 강화 중 행동 종류를 같은 확률로 고름
+    private BattleAction ChooseCharmAction(BattleUnit actor)
+    {
+        var actionGroups = new List<List<BattleAction>>();
+        List<BattleAction> attacks = GetCharmAttackActions(actor);
+        List<BattleAction> heals = GetCharmSkillActions(actor, healing: true);
+        List<BattleAction> buffs = GetCharmSkillActions(actor, healing: false);
+        if (attacks.Count > 0) actionGroups.Add(attacks);
+        if (heals.Count > 0) actionGroups.Add(heals);
+        if (buffs.Count > 0) actionGroups.Add(buffs);
+        if (actionGroups.Count == 0)
+            return new BattleAction(actor.BattleId, BattleActionType.Skip);
+
+        List<BattleAction> choices = actionGroups[random.Next(actionGroups.Count)];
+        return choices[random.Next(choices.Count)];
+    }
+
+    //매혹된 전투원이 자기편에 사용할 일반 공격을 만듦
+    private List<BattleAction> GetCharmAttackActions(BattleUnit actor)
+    {
+        var result = new List<BattleAction>();
+        if (actor.BasicAttack == null) return result;
+
+        IReadOnlyList<BattleUnit> allies = GetUnitsBySide(false);
+        foreach (BattleUnit target in allies)
+        {
+            if (target == actor && allies.Count > 1) continue;
+            result.Add(new BattleAction(actor.BattleId,
+                BattleActionType.BasicAttack, target.BattleId,
+                reverseTargetSide: true));
+        }
+        return result;
+    }
+
+    //매혹된 전투원이 상대편에 사용할 회복 또는 강화 스킬을 만듦
+    private List<BattleAction> GetCharmSkillActions(BattleUnit actor, bool healing)
+    {
+        var result = new List<BattleAction>();
+        IReadOnlyList<BattleUnit> opponents = GetUnitsBySide(true);
+        foreach (SkillData skill in GetUsableSkills())
+        {
+            if (HasOnlyHealEffects(skill) != healing ||
+                (!healing && !HasOnlyBuffEffects(skill)))
+                continue;
+
+            if (skill.TargetType == SkillTargetType.OneAlly)
+            {
+                foreach (BattleUnit target in opponents)
+                    result.Add(new BattleAction(actor.BattleId,
+                        BattleActionType.Skill, target.BattleId, skill.Id, true));
+            }
+            else if (skill.TargetType == SkillTargetType.AllAllies &&
+                     opponents.Count > 0)
+            {
+                result.Add(new BattleAction(actor.BattleId,
+                    BattleActionType.Skill, skillId: skill.Id,
+                    reverseTargetSide: true));
+            }
+        }
+        return result;
+    }
+
+    //회복만 실행하는 스킬인지 확인함
+    private bool HasOnlyHealEffects(SkillData skill)
+    {
+        IReadOnlyList<SkillEffectData> effects = skillEffects[skill.Id];
+        bool found = false;
+        foreach (SkillEffectData effect in effects)
+        {
+            if (effect.Type != SkillEffectType.Heal) return false;
+            found = true;
+        }
+        return found;
+    }
+
+    //능력치 강화만 적용하는 스킬인지 확인함
+    private bool HasOnlyBuffEffects(SkillData skill)
+    {
+        IReadOnlyList<SkillEffectData> effects = skillEffects[skill.Id];
+        bool found = false;
+        foreach (SkillEffectData effect in effects)
+        {
+            if (effect.Type != SkillEffectType.ApplyEffect ||
+                !battleEffects.TryGetValue(effect.EffectId, out BattleEffectData data) ||
+                data.Category != BattleEffectCategory.Buff)
+                return false;
+            found = true;
+        }
+        return found;
+    }
+
+    //정해진 강제 행동과 제출된 행동이 같은지 확인함
+    private static bool IsSameAction(BattleAction left, BattleAction right)
+    {
+        return left.Type == right.Type &&
+               string.Equals(left.UnitId, right.UnitId, StringComparison.Ordinal) &&
+               string.Equals(left.TargetId, right.TargetId, StringComparison.Ordinal) &&
+               string.Equals(left.SkillId, right.SkillId, StringComparison.Ordinal) &&
+               left.ReverseTargetSide == right.ReverseTargetSide;
+    }
+
     //현재 행동을 끝내고 다음 차례를 받을 수 있게 함.
     private BattleState CompleteTurn()
     {
@@ -406,10 +594,14 @@ public sealed class BattleSession
 
         #endregion
 
+        if (!IsOneMoreTurn)
+            currentUnit.AdvanceTimedEffects();
+
         currentUnit = null;
         actionExecuted = false;
         IsOneMoreTurn = false;
         allOutAttackAvailable = false;
+        mentalAction = null;
         UpdateOutcome();
         return State;
     }
@@ -439,6 +631,16 @@ public sealed class BattleSession
                 return false;
         }
         return foundEnemy;
+    }
+
+    //전투 종료 후 모든 전투원의 전투 전용 상태를 정리함
+    public void ClearBattleState()
+    {
+        foreach (BattleUnit unit in units.Values)
+            unit.ClearBattleState();
+        pendingOneMoreUnitId = null;
+        allOutAttackAvailable = false;
+        mentalAction = null;
     }
 
     //전투 결과를 다시 계산함.

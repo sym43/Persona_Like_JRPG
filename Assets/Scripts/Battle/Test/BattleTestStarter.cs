@@ -97,7 +97,8 @@ public sealed class BattleTestStarter : MonoBehaviour
             }
         };
 
-        return new BattleSession(order, units, skills, effects,
+        var battleEffects = new Dictionary<string, BattleEffectData>();
+        return new BattleSession(order, units, skills, effects, battleEffects,
             new System.Random(2));
     }
 
@@ -109,7 +110,8 @@ public sealed class BattleTestStarter : MonoBehaviour
         return new BattleUnit(PlayerId, data, "test_character",
             "test_anima_instance", "test_anima", 0, 10,
             120, 30, 120, 30, new BattleStats(20, 15, 15, 10, 10),
-            CreateNormalResistances(), new[] { SkillId }, EmptyEquipment(),
+            CreateNormalResistances(), CreateNormalMentalResistance(),
+            new[] { SkillId }, EmptyEquipment(),
             new BasicAttackData(30, 100, DamageType.Slash), 10, 0);
     }
 
@@ -121,7 +123,7 @@ public sealed class BattleTestStarter : MonoBehaviour
         return new BattleUnit(EnemyId, data, null, null, null,
             0, 10, 50, 0, 50, 0,
             new BattleStats(8, 8, 10, 20, 8), CreateNormalResistances(),
-            Array.Empty<string>(), EmptyEquipment(),
+            CreateNormalMentalResistance(), Array.Empty<string>(), EmptyEquipment(),
             new BasicAttackData(10, 100, DamageType.Strike), 5, 0);
     }
 
@@ -136,6 +138,19 @@ public sealed class BattleTestStarter : MonoBehaviour
         }
 
         return new ResistanceTable(entries);
+    }
+
+    //임시: 모든 정신 상태를 보통 저항으로 채움.
+    private static MentalResistanceTable CreateNormalMentalResistance()
+    {
+        var entries = new List<KeyValuePair<BattleEffectType, MentalResistanceType>>();
+        for (BattleEffectType type = BattleEffectType.Intoxication;
+             type <= BattleEffectType.Intimidation; type++)
+        {
+            entries.Add(new KeyValuePair<BattleEffectType, MentalResistanceType>(
+                type, MentalResistanceType.Normal));
+        }
+        return new MentalResistanceTable(entries);
     }
 
     //임시: 장비 데이터 연결 전 사용할 빈 장비 슬롯을 만듦.

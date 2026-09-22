@@ -156,6 +156,59 @@ public static class BattleAttackCalculator
             !friendlyFire && !targetImmuneToCritical && !target.IsGuarding;
     }
 
+    //운과 상태 저항으로 정신 상태 기본 부여율을 계산함
+    public static int CalculateMentalChance(BattleUnit attacker, BattleUnit target,
+        int baseChance, BattleEffectType mentalType)
+    {
+        if (attacker == null) throw new ArgumentNullException(nameof(attacker), "상태를 거는 전투원이 필요합니다.");
+        if (target == null) throw new ArgumentNullException(nameof(target), "상태 대상이 필요합니다.");
+        if (baseChance < 0 || baseChance > 100)
+            throw new ArgumentOutOfRangeException(nameof(baseChance), "기본 부여율은 0 이상 100 이하여야 합니다.");
+
+        double resistance = target.MentalResistance.GetMultiplier(mentalType);
+        if (resistance == 0d) return 0;
+        if (baseChance == 100) return 100;
+
+        double enemyPenalty = attacker.IsEnemy ? 0.8d : 1d;
+        int chance = (int)Math.Truncate((attacker.Stats.Luck + 100d) /
+            (target.Stats.Luck + 100d) * baseChance * resistance * enemyPenalty);
+        return Math.Max(0, Math.Min(99, chance));
+    }
+
+    //자신의 운·레벨·상태 저항으로 정신 상태 자연 회복률을 계산함
+    public static int CalculateMentalRecoveryChance(BattleUnit unit,
+        BattleEffectType mentalType)
+    {
+        if (unit == null) throw new ArgumentNullException(nameof(unit), "상태 전투원이 필요합니다.");
+        int mod;
+        switch (mentalType)
+        {
+            case BattleEffectType.Intoxication:
+            case BattleEffectType.Lethargy:
+            case BattleEffectType.Charm:
+                mod = 50;
+                break;
+            case BattleEffectType.Panic:
+                mod = 40;
+                break;
+            case BattleEffectType.Berserk:
+                mod = 30;
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(mentalType), "정신 상태가 아닌 효과입니다.");
+        }
+
+        double resistance = unit.MentalResistance.GetMultiplier(mentalType);
+        if (resistance == 0d) resistance = 1d;
+        int chance = (int)Math.Truncate(unit.Stats.Luck /
+            ((unit.Level * 3d - 1d) * resistance) * mod);
+        return Math.Max(0, Math.Min(100, chance));
+    }
+
+    //물리 피해 속성인지 확인함
+    public static bool IsPhysical(DamageType type) =>
+        type == DamageType.Slash || type == DamageType.Strike || type == DamageType.Pierce;
+
     //최대 HP 비율로 사용하는 기술의 HP 비용을 계산함
     public static int CalculateHpCost(BattleUnit user, int costPercent)
     {
@@ -183,7 +236,7 @@ public static class BattleAttackCalculator
 
     //기술 회복력과 마력 보너스로 HP 회복량을 계산함
     public static int CalculateHealing(BattleUnit healer, int healingPower,
-        int magicBonus, bool divineGrace, int rangePercent)
+        int magicBonus, bool hasHealingBoost, int rangePercent)
     {
         if (healer == null) throw new ArgumentNullException(nameof(healer), "회복 기술 사용자가 필요합니다.");
         if (healingPower < 0) throw new ArgumentOutOfRangeException(nameof(healingPower), "회복력은 0 이상이어야 합니다.");
@@ -192,7 +245,7 @@ public static class BattleAttackCalculator
 
         double teamMultiplier = healer.IsEnemy ? 0.6d : 1d;
         double healed = Math.Truncate((healingPower + (double)magicBonus) * teamMultiplier);
-        if (divineGrace) healed = Math.Truncate(healed * 1.5d);
+        if (hasHealingBoost) healed = Math.Truncate(healed * 1.5d);
         healed = Math.Max(1d, Math.Min(99999d, healed));
         return (int)Math.Truncate(Math.Max(1d, healed * rangePercent / 100d));
     }
@@ -205,9 +258,6 @@ public static class BattleAttackCalculator
         int index = Math.Min(HealingMagicBonuses.Length - 1, (magic - 1) / 5);
         return HealingMagicBonuses[index];
     }
-
-    private static bool IsPhysical(DamageType type) =>
-        type == DamageType.Slash || type == DamageType.Strike || type == DamageType.Pierce;
 
     private static void CheckMultiplier(double value, string name)
     {

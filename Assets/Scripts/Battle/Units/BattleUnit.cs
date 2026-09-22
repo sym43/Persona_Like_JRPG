@@ -45,6 +45,8 @@ public sealed class BattleUnit
     public int StartAgility { get; }
     //현재 속성 저항 목록
     public ResistanceTable Resistances { get; }
+    //현재 정신 상태 저항 목록
+    public MentalResistanceTable MentalResistance { get; }
     //현재 스킬 ID 목록
     public IReadOnlyList<string> SkillIds { get; }
     //현재 장비 ID 목록
@@ -65,7 +67,8 @@ public sealed class BattleUnit
         string characterId, string animaInstanceId,
         string animaDataId, int turnTieOrder, int level,
         int maxHp, int maxSp, int hp, int sp, BattleStats stats,
-        ResistanceTable resistances, IEnumerable<string> skillIds,
+        ResistanceTable resistances, MentalResistanceTable mentalResistance,
+        IEnumerable<string> skillIds,
         IReadOnlyList<string> equipmentIds, BasicAttackData basicAttack,
         int armor, int shoeEvasion)
     {
@@ -79,6 +82,7 @@ public sealed class BattleUnit
         if (maxSp < 0) throw new ArgumentOutOfRangeException(nameof(maxSp), "최대 SP는 0 이상이어야 합니다.");
         if (stats == null) throw new ArgumentNullException(nameof(stats), "전투 능력치가 필요합니다.");
         if (resistances == null) throw new ArgumentNullException(nameof(resistances), "저항 표가 필요합니다.");
+        if (mentalResistance == null) throw new ArgumentNullException(nameof(mentalResistance), "상태 저항 표가 필요합니다.");
         if (basicAttack == null && unitData.Role != UnitRole.Enemy)
             throw new ArgumentNullException(nameof(basicAttack), "아군의 일반 공격 수치가 필요합니다.");
         if (armor < 0) throw new ArgumentOutOfRangeException(nameof(armor), "방어구 방어력은 0 이상이어야 합니다.");
@@ -109,6 +113,7 @@ public sealed class BattleUnit
         Stats = stats;
         StartAgility = stats.Agility;
         Resistances = resistances;
+        MentalResistance = mentalResistance;
         SkillIds = BattleDataChecks.CheckAndCopySkillIds(skillIds, isEnemy ? int.MaxValue : 8);
         EquipmentIds = BattleDataChecks.CheckAndCopyEquipmentIds(equipmentIds);
         BasicAttack = basicAttack;
@@ -234,34 +239,164 @@ public sealed class BattleUnit
         IsGuarding = false;
     }
 
-    //효과를 추가함
-    public void AddEffect(BattleUnitEffectState effect)
+    //효과를 적용하고 신규 적용·갱신·상쇄·차단 결과를 반환함
+    public BattleEffectResultType ApplyEffect(BattleEffectData data, string appliedByUnitId)
     {
-        #region 입력값 검사
+        if (data == null) throw new ArgumentNullException(nameof(data), "전투 효과가 필요합니다.");
 
-        if (effect == null) throw new ArgumentNullException(nameof(effect), "전투 효과가 필요합니다.");
+        foreach (BattleUnitEffectState state in effectStates)
+        {
+            if (!string.Equals(state.Effect.ConflictGroupId, data.ConflictGroupId, StringComparison.Ordinal))
+                continue;
+            if (state.Effect.Type == data.Type)
+            {
+                state.Refresh();
+                return BattleEffectResultType.Refreshed;
+            }
+            if (data.Category == BattleEffectCategory.MentalState)
+                return BattleEffectResultType.Blocked;
+        }
 
-        #endregion
+        BattleEffectType? opposite = GetOppositeType(data.Type);
+        if (opposite.HasValue)
+        {
+            int removed = effectStates.RemoveAll(state => state.Effect.Type == opposite.Value);
+            if (removed > 0)
+                return BattleEffectResultType.Canceled;
+        }
 
-        effectStates.Add(effect);
+        effectStates.Add(new BattleUnitEffectState(data, appliedByUnitId));
+        return BattleEffectResultType.Applied;
     }
 
-    //같은 ID의 효과를 모두 제거함
-    public void RemoveEffects(string effectId)
+    //해당 종류 효과가 있는지 확인함
+    public bool HasEffect(BattleEffectType type)
     {
-        #region 입력값 검사
-
-        BattleDataChecks.CheckText(effectId);
-
-        #endregion
-
-        effectStates.RemoveAll(effect => string.Equals(effect.EffectId, effectId, StringComparison.Ordinal));
+        return effectStates.Exists(state => state.Effect.Type == type);
     }
 
-    //모든 효과를 제거함
-    public void ClearEffects()
+    //해당 종류 효과 하나를 소비함
+    public bool ConsumeEffect(BattleEffectType type)
+    {
+        int index = effectStates.FindIndex(state => state.Effect.Type == type);
+        if (index < 0) return false;
+        effectStates.RemoveAt(index);
+        return true;
+    }
+
+    //해당 종류 효과의 첫 번째 수치를 배율로 반환함
+    public double GetEffectMultiplier(BattleEffectType type)
+    {
+        BattleUnitEffectState state = effectStates.Find(item => item.Effect.Type == type);
+        return state == null ? 1d : state.Effect.Value / 100d;
+    }
+
+    //같은 종류 효과 수치를 모두 더함
+    public int GetEffectValue(BattleEffectType type)
+    {
+        int value = 0;
+        foreach (BattleUnitEffectState state in effectStates)
+        {
+            if (state.Effect.Type == type)
+                value += state.Effect.Value;
+        }
+        return value;
+    }
+
+    //능력치 강화 효과를 제거하고 제거된 ID를 반환함
+    public IReadOnlyList<string> RemoveStatBuffs()
+    {
+        return RemoveEffects(state => state.Effect.Category == BattleEffectCategory.Buff);
+    }
+
+    //능력치 약화 효과를 제거하고 제거된 ID를 반환함
+    public IReadOnlyList<string> RemoveStatDebuffs()
+    {
+        return RemoveEffects(state => state.Effect.Category == BattleEffectCategory.Debuff);
+    }
+
+    //정신 상태를 제거하고 제거된 ID를 반환함
+    public IReadOnlyList<string> RemoveMentalStates()
+    {
+        return RemoveEffects(state => state.Effect.Category == BattleEffectCategory.MentalState);
+    }
+
+    //기본 행동이 끝날 때 시간제 효과의 남은 턴을 줄임
+    public void AdvanceTimedEffects()
+    {
+        for (int i = effectStates.Count - 1; i >= 0; i--)
+        {
+            BattleUnitEffectState state = effectStates[i];
+            if (state.Effect.Category != BattleEffectCategory.MentalState && state.ReduceDuration())
+                effectStates.RemoveAt(i);
+        }
+    }
+
+    //기본 행동 시작에 정신 상태의 자연 회복을 판정함
+    public void AdvanceMentalStates(Random random)
+    {
+        if (random == null) throw new ArgumentNullException(nameof(random), "상태 회복 난수가 필요합니다.");
+
+        for (int i = effectStates.Count - 1; i >= 0; i--)
+        {
+            BattleUnitEffectState state = effectStates[i];
+            if (state.Effect.Category != BattleEffectCategory.MentalState) continue;
+
+            int turns = state.PassMentalTurn();
+            if (turns >= state.Effect.MaxTurns)
+            {
+                effectStates.RemoveAt(i);
+                continue;
+            }
+            if (turns < state.Effect.MinTurns)
+                continue;
+
+            if (state.Effect.Type == BattleEffectType.Thrill ||
+                state.Effect.Type == BattleEffectType.Intimidation)
+                continue;
+
+            int chance = BattleAttackCalculator.CalculateMentalRecoveryChance(this, state.Effect.Type);
+            if (random.Next(100) < chance)
+                effectStates.RemoveAt(i);
+        }
+    }
+
+    //전투 종료 후 HP·SP를 제외한 전투 전용 상태를 정리함
+    public void ClearBattleState()
     {
         effectStates.Clear();
+        IsDown = false;
+        IsGuarding = false;
+        HasLeftBattle = false;
+    }
+
+    //조건에 맞는 효과를 제거함
+    private IReadOnlyList<string> RemoveEffects(Predicate<BattleUnitEffectState> match)
+    {
+        var removedIds = new List<string>();
+        for (int i = effectStates.Count - 1; i >= 0; i--)
+        {
+            if (!match(effectStates[i])) continue;
+            removedIds.Add(effectStates[i].EffectId);
+            effectStates.RemoveAt(i);
+        }
+        removedIds.Reverse();
+        return removedIds.AsReadOnly();
+    }
+
+    //서로 상쇄되는 능력치 효과를 찾음
+    private static BattleEffectType? GetOppositeType(BattleEffectType type)
+    {
+        switch (type)
+        {
+            case BattleEffectType.AttackUp: return BattleEffectType.AttackDown;
+            case BattleEffectType.AttackDown: return BattleEffectType.AttackUp;
+            case BattleEffectType.DefenseUp: return BattleEffectType.DefenseDown;
+            case BattleEffectType.DefenseDown: return BattleEffectType.DefenseUp;
+            case BattleEffectType.AccuracyEvasionUp: return BattleEffectType.AccuracyEvasionDown;
+            case BattleEffectType.AccuracyEvasionDown: return BattleEffectType.AccuracyEvasionUp;
+            default: return null;
+        }
     }
 
     //전투 시작 상태를 초기화함

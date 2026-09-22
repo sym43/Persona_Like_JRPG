@@ -77,7 +77,10 @@ public sealed class BattleController : MonoBehaviour
 
         BattleUnit unit = session.ShiftOneMoreTo(unitId);
         OneMoreStarted?.Invoke(unit);
-        PlayerTurnStarted?.Invoke(unit);
+        if (session.TryGetMentalAction(out BattleAction mentalAction))
+            RunAction(mentalAction);
+        else
+            PlayerTurnStarted?.Invoke(unit);
     }
 
     //현재 시프트할 수 있는 아군을 구함
@@ -167,6 +170,12 @@ public sealed class BattleController : MonoBehaviour
         if (session.IsOneMoreTurn)
             OneMoreStarted?.Invoke(unit);
 
+        if (session.TryGetMentalAction(out BattleAction mentalAction))
+        {
+            RunAction(mentalAction);
+            return;
+        }
+
         if (!unit.IsEnemy)
         {
             PlayerTurnStarted?.Invoke(unit);
@@ -205,6 +214,7 @@ public sealed class BattleController : MonoBehaviour
     private void EndBattle(BattleState state)
     {
         Phase = BattlePhase.Ended;
+        session.ClearBattleState();
         BattleEnded?.Invoke(state);
         session = null;
         enemySelector = null;
