@@ -23,6 +23,7 @@ public sealed class BattleSession
     private readonly IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects;
     private readonly IReadOnlyDictionary<string, BattleEffectData> battleEffects;
     private readonly BattleUnit mainCharacter;
+    private readonly IReadOnlyList<Anima> animas;
     private readonly BattleActionExecutor actionExecutor;
     private readonly Random random;
 
@@ -32,6 +33,7 @@ public sealed class BattleSession
     private string pendingOneMoreUnitId;
     private bool allOutAttackAvailable;
     private BattleAction mentalAction;
+    private bool animaChangeUsed;
 
     //현재 전투 순환 번호
     public int Round { get; private set; } = 1;
@@ -45,6 +47,9 @@ public sealed class BattleSession
     public bool CanStartAllOutAttack => allOutAttackAvailable;
     //현재 전투 상태
     public BattleState State { get; private set; } = BattleState.Ongoing;
+    //현재 주인공이 아니마를 교체할 수 있는지
+    public bool CanChangeAnima => currentUnit == mainCharacter && !actionExecuted &&
+        mentalAction == null && !animaChangeUsed && animas.Count > 1;
 
     //정신 상태로 이미 정해진 행동을 구함
     public bool TryGetMentalAction(out BattleAction action)
@@ -62,7 +67,7 @@ public sealed class BattleSession
                 new Dictionary<string, IReadOnlyList<SkillEffectData>>()),
             new ReadOnlyDictionary<string, BattleEffectData>(
                 new Dictionary<string, BattleEffectData>()),
-            random, bossBattle)
+            Array.Empty<Anima>(), random, bossBattle)
     {
     }
 
@@ -72,6 +77,17 @@ public sealed class BattleSession
         IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
         IReadOnlyDictionary<string, BattleEffectData> battleEffects,
         Random random, bool bossBattle = false)
+        : this(turnOrder, units, skills, skillEffects, battleEffects,
+            Array.Empty<Anima>(), random, bossBattle)
+    {
+    }
+
+    //턴 순서, 전투원, 스킬과 주인공의 지참 아니마를 연결함
+    public BattleSession(BattleTurnOrder turnOrder, IEnumerable<BattleUnit> units,
+        IReadOnlyDictionary<string, SkillData> skills,
+        IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
+        IReadOnlyDictionary<string, BattleEffectData> battleEffects,
+        IEnumerable<Anima> animas, Random random, bool bossBattle = false)
     {
         #region 입력값 검사
 
@@ -80,6 +96,7 @@ public sealed class BattleSession
         if (skills == null) throw new ArgumentNullException(nameof(skills), "스킬 목록이 필요합니다.");
         if (skillEffects == null) throw new ArgumentNullException(nameof(skillEffects), "스킬 효과 목록이 필요합니다.");
         if (battleEffects == null) throw new ArgumentNullException(nameof(battleEffects), "전투 효과 목록이 필요합니다.");
+        if (animas == null) throw new ArgumentNullException(nameof(animas), "지참 아니마 목록이 필요합니다.");
         if (random == null) throw new ArgumentNullException(nameof(random), "행동 난수 생성기가 필요합니다.");
 
         #endregion
@@ -89,10 +106,41 @@ public sealed class BattleSession
         this.skills = skills;
         this.skillEffects = skillEffects;
         this.battleEffects = battleEffects;
+        this.animas = CopyAnimas(animas);
         this.random = random;
         actionExecutor = new BattleActionExecutor(random, bossBattle, battleEffects);
         CheckOrderMembers();
+        CheckAnimas();
         UpdateOutcome();
+    }
+
+    //주인공이 전투에 지참한 아니마를 구함
+    public IReadOnlyList<Anima> GetBattleAnimas()
+    {
+        return animas;
+    }
+
+    //주인공의 현재 아니마를 바꾸고 같은 행동에서 재교체하지 못하게 함
+    public void ChangeAnima(string instanceId)
+    {
+        BattleDataChecks.CheckText(instanceId);
+        if (!CanChangeAnima)
+            throw new InvalidOperationException("현재 아니마를 교체할 수 없습니다.");
+        if (string.Equals(mainCharacter.AnimaInstanceId, instanceId,
+                StringComparison.Ordinal))
+            throw new InvalidOperationException("현재 사용 중인 아니마입니다.");
+
+        foreach (Anima anima in animas)
+        {
+            if (!string.Equals(anima.InstanceId, instanceId, StringComparison.Ordinal))
+                continue;
+
+            mainCharacter.ChangeAnima(anima);
+            animaChangeUsed = true;
+            return;
+        }
+
+        throw new InvalidOperationException("전투에 지참하지 않은 아니마입니다.");
     }
 
     //현재 차례의 행동을 실행하고 연출용 결과를 반환함
@@ -157,6 +205,8 @@ public sealed class BattleSession
                 continue;
 
             currentUnit = unit;
+            if (unit == mainCharacter)
+                animaChangeUsed = false;
             mentalAction = ChooseMentalAction(unit);
             return unit;
         }
@@ -282,6 +332,8 @@ public sealed class BattleSession
                 !nextUnitInOrder.HasEffect(BattleEffectType.Intimidation))
                 nextUnitInOrder.RecoverFromDown();
             currentUnit = nextUnitInOrder;
+            if (nextUnitInOrder == mainCharacter)
+                animaChangeUsed = false;
             mentalAction = ChooseMentalAction(nextUnitInOrder);
             unit = nextUnitInOrder;
             return true;
@@ -641,6 +693,36 @@ public sealed class BattleSession
         pendingOneMoreUnitId = null;
         allOutAttackAvailable = false;
         mentalAction = null;
+        animaChangeUsed = false;
+    }
+
+    //지참 아니마를 입력 순서대로 복사하고 중복 ID를 막음
+    private static IReadOnlyList<Anima> CopyAnimas(IEnumerable<Anima> source)
+    {
+        var result = new List<Anima>();
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (Anima anima in source)
+        {
+            if (anima == null)
+                throw new ArgumentException("지참 아니마 목록에 빈 항목이 있습니다.", nameof(source));
+            if (!ids.Add(anima.InstanceId))
+                throw new ArgumentException($"중복된 아니마 개체 ID가 있습니다: {anima.InstanceId}", nameof(source));
+            result.Add(anima);
+        }
+        return result.AsReadOnly();
+    }
+
+    //지참 목록을 사용하면 현재 아니마가 목록에 포함됐는지 확인함
+    private void CheckAnimas()
+    {
+        if (animas.Count == 0) return;
+        foreach (Anima anima in animas)
+        {
+            if (string.Equals(anima.InstanceId, mainCharacter.AnimaInstanceId,
+                    StringComparison.Ordinal))
+                return;
+        }
+        throw new ArgumentException("주인공의 현재 아니마가 지참 목록에 없습니다.");
     }
 
     //전투 결과를 다시 계산함.

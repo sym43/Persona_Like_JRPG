@@ -12,7 +12,8 @@ public enum BattlePhase
     PlayingAction = 2,
     ShowingResult = 3,
     ChoosingAllOutAttack = 4,
-    Ended = 5
+    ChangingAnima = 5,
+    Ended = 6
 }
 
 /// <summary>
@@ -36,6 +37,8 @@ public sealed class BattleController : MonoBehaviour
     public event Action<BattleActionResult> ActionResolved;
     //총공격을 선택할 수 있을 때 참여 가능한 아군과 함께 알림
     public event Action<IReadOnlyList<BattleUnit>> AllOutAttackAvailable;
+    //주인공 아니마가 바뀌었을 때 이전 아니마 ID와 함께 알림
+    public event Action<BattleUnit, string> AnimaChanged;
     //전투가 끝났을 때의 상태
     public event Action<BattleState> BattleEnded;
 
@@ -43,6 +46,8 @@ public sealed class BattleController : MonoBehaviour
     public BattleUnit CurrentUnit => session?.CurrentUnit;
     //현재 전투 진행 단계
     public BattlePhase Phase { get; private set; } = BattlePhase.None;
+    //현재 주인공이 아니마를 교체할 수 있는지
+    public bool CanChangeAnima => session?.CanChangeAnima ?? false;
 
     //전투를 시작함
     public void StartBattle(BattleSession battleSession)
@@ -87,6 +92,37 @@ public sealed class BattleController : MonoBehaviour
     public IReadOnlyList<BattleUnit> GetShiftTargets()
     {
         return session?.GetShiftTargets() ?? Array.Empty<BattleUnit>();
+    }
+
+    //주인공이 전투에 지참한 아니마를 구함
+    public IReadOnlyList<Anima> GetBattleAnimas()
+    {
+        return session?.GetBattleAnimas() ?? Array.Empty<Anima>();
+    }
+
+    //주인공의 아니마를 바꾸고 교체 연출이 끝날 때까지 입력을 기다림
+    public void ChangeAnima(string instanceId)
+    {
+        if (session == null || Phase != BattlePhase.ChoosingAction ||
+            session.CurrentUnit == null || session.CurrentUnit.IsEnemy)
+            throw new InvalidOperationException("현재 아니마를 교체할 수 없습니다.");
+
+        BattleUnit unit = session.CurrentUnit;
+        string previousAnimaId = unit.AnimaInstanceId;
+        session.ChangeAnima(instanceId);
+        Phase = BattlePhase.ChangingAnima;
+        if (AnimaChanged == null)
+            FinishAnimaChange();
+        else
+            AnimaChanged.Invoke(unit, previousAnimaId);
+    }
+
+    //아니마 교체 연출을 마치고 행동 선택을 다시 허용함
+    public void FinishAnimaChange()
+    {
+        if (session == null || Phase != BattlePhase.ChangingAnima)
+            throw new InvalidOperationException("마무리할 아니마 교체가 없습니다.");
+        Phase = BattlePhase.ChoosingAction;
     }
 
     //제안된 총공격을 실행하거나 거절함

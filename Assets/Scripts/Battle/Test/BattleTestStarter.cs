@@ -14,6 +14,8 @@ public sealed class BattleTestStarter : MonoBehaviour
     private const string PlayerId = "test_player";
     private const string EnemyId = "test_enemy";
     private const string SkillId = "test_slash";
+    private const string FirstAnimaInstanceId = "test_anima_1";
+    private const string SecondAnimaInstanceId = "test_anima_2";
 
     //임시: 플레이 모드에서 테스트 전투를 자동으로 시작함.
     private void Start()
@@ -26,6 +28,7 @@ public sealed class BattleTestStarter : MonoBehaviour
 
         battleController.PlayerTurnStarted += ChoosePlayerAction;
         battleController.ActionResolved += LogActionResult;
+        battleController.AnimaChanged += FinishAnimaChange;
         battleController.BattleEnded += LogBattleEnd;
         battleController.StartBattle(CreateTestBattle());
         Debug.Log("전투 테스트를 시작했습니다.");
@@ -39,12 +42,17 @@ public sealed class BattleTestStarter : MonoBehaviour
 
         battleController.PlayerTurnStarted -= ChoosePlayerAction;
         battleController.ActionResolved -= LogActionResult;
+        battleController.AnimaChanged -= FinishAnimaChange;
         battleController.BattleEnded -= LogBattleEnd;
     }
 
     //임시: 플레이어 입력 UI 대신 공격 스킬을 자동으로 선택함.
     private void ChoosePlayerAction(BattleUnit unit)
     {
+        if (battleController.CanChangeAnima &&
+            unit.AnimaInstanceId == FirstAnimaInstanceId)
+            battleController.ChangeAnima(SecondAnimaInstanceId);
+
         battleController.SubmitPlayerAction(new BattleAction(
             unit.BattleId, BattleActionType.Skill, EnemyId, SkillId));
     }
@@ -59,6 +67,13 @@ public sealed class BattleTestStarter : MonoBehaviour
         }
     }
 
+    //임시: 아니마 교체 연출 대신 로그를 남기고 선택을 다시 허용함.
+    private void FinishAnimaChange(BattleUnit unit, string previousAnimaId)
+    {
+        Debug.Log($"아니마 교체: {previousAnimaId} → {unit.AnimaInstanceId}");
+        battleController.FinishAnimaChange();
+    }
+
     //전투 종료 결과를 콘솔에 표시함
     private static void LogBattleEnd(BattleState state)
     {
@@ -68,7 +83,11 @@ public sealed class BattleTestStarter : MonoBehaviour
     //임시: CSV와 저장 데이터 연결 전 사용할 전투를 만듦.
     private static BattleSession CreateTestBattle()
     {
-        BattleUnit player = CreatePlayer();
+        Anima firstAnima = CreateAnima(FirstAnimaInstanceId,
+            "test_anima_data_1", new BattleStats(20, 15, 15, 10, 10));
+        Anima secondAnima = CreateAnima(SecondAnimaInstanceId,
+            "test_anima_data_2", new BattleStats(20, 20, 12, 18, 12));
+        BattleUnit player = CreatePlayer(firstAnima);
         BattleUnit enemy = CreateEnemy();
         var units = new[] { player, enemy };
         var order = new BattleTurnOrder(new[]
@@ -99,20 +118,29 @@ public sealed class BattleTestStarter : MonoBehaviour
 
         var battleEffects = new Dictionary<string, BattleEffectData>();
         return new BattleSession(order, units, skills, effects, battleEffects,
-            new System.Random(2));
+            new[] { firstAnima, secondAnima }, new System.Random(2));
     }
 
     //임시: 테스트용 주인공을 만듦.
-    private static BattleUnit CreatePlayer()
+    private static BattleUnit CreatePlayer(Anima anima)
     {
         var data = new BattleUnitData(PlayerId, "테스트 주인공",
             UnitRole.MainCharacter, 10, 120, 30, null);
         return new BattleUnit(PlayerId, data, "test_character",
-            "test_anima_instance", "test_anima", 0, 10,
-            120, 30, 120, 30, new BattleStats(20, 15, 15, 10, 10),
-            CreateNormalResistances(), CreateNormalMentalResistance(),
-            new[] { SkillId }, EmptyEquipment(),
+            anima.InstanceId, anima.Data.Id, 0, 10,
+            120, 30, 120, 30, anima.Stats,
+            anima.Data.Resistances, CreateNormalMentalResistance(),
+            anima.SkillIds, EmptyEquipment(),
             new BasicAttackData(30, 100, DamageType.Slash), 10, 0);
+    }
+
+    //임시: 테스트용 아니마를 만듦.
+    private static Anima CreateAnima(string instanceId, string dataId,
+        BattleStats stats)
+    {
+        var data = new AnimaData(dataId, dataId, 1, stats,
+            CreateNormalResistances(), Array.Empty<SkillLearnData>());
+        return new Anima(instanceId, data, 1, 0, stats, new[] { SkillId });
     }
 
     //임시: 테스트용 적을 만듦.

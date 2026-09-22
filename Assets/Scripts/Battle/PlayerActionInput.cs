@@ -33,6 +33,13 @@ public sealed class PlayerActionInput : MonoBehaviour
             new BattleAction(unit.BattleId, BattleActionType.Guard));
     }
 
+    //주인공이 사용할 아니마를 선택함
+    public void ChooseAnima(string instanceId)
+    {
+        GetCurrentUnit();
+        battleController.ChangeAnima(instanceId);
+    }
+
     //현재 플레이어 차례의 전투원을 확인함
     private BattleUnit GetCurrentUnit()
     {

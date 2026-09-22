@@ -14,9 +14,9 @@ public sealed class BattleUnit
     //캐릭터 ID
     public string CharacterId { get; }
     //현재 아니마 개체 ID
-    public string AnimaInstanceId { get; }
+    public string AnimaInstanceId { get; private set; }
     //현재 아니마 데이터 ID
-    public string AnimaDataId { get; }
+    public string AnimaDataId { get; private set; }
     //속도가 같을 때 사용할 순서
     public int TurnTieOrder { get; }
     //전투 레벨
@@ -40,15 +40,15 @@ public sealed class BattleUnit
     //전투 이탈 여부
     public bool HasLeftBattle { get; private set; }
     //전투 능력치
-    public BattleStats Stats { get; }
+    public BattleStats Stats { get; private set; }
     //전투 시작 시 민첩
     public int StartAgility { get; }
     //현재 속성 저항 목록
-    public ResistanceTable Resistances { get; }
+    public ResistanceTable Resistances { get; private set; }
     //현재 정신 상태 저항 목록
     public MentalResistanceTable MentalResistance { get; }
     //현재 스킬 ID 목록
-    public IReadOnlyList<string> SkillIds { get; }
+    public IReadOnlyList<string> SkillIds { get; private set; }
     //현재 장비 ID 목록
     public IReadOnlyList<string> EquipmentIds { get; }
     //장착 무기 또는 적 데이터에서 확정한 일반 공격 수치. 기본 공격이 없는 적은 비어 있음.
@@ -121,6 +121,21 @@ public sealed class BattleUnit
         ShoeEvasion = shoeEvasion;
         Effects = effectStates.AsReadOnly();
         InitializeState(hp, sp);
+    }
+
+    //주인공이 사용하는 아니마의 능력치·상성·스킬을 바꿈
+    internal void ChangeAnima(Anima anima)
+    {
+        if (Data.Role != UnitRole.MainCharacter)
+            throw new InvalidOperationException("주인공만 아니마를 교체할 수 있습니다.");
+        if (anima == null)
+            throw new ArgumentNullException(nameof(anima), "교체할 아니마가 필요합니다.");
+
+        AnimaInstanceId = anima.InstanceId;
+        AnimaDataId = anima.Data.Id;
+        Stats = anima.Stats;
+        Resistances = anima.Data.Resistances;
+        SkillIds = BattleDataChecks.CheckAndCopySkillIds(anima.SkillIds, 8);
     }
 
     //계산된 피해를 현재 HP에 적용함
