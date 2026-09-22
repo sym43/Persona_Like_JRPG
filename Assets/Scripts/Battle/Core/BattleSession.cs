@@ -22,6 +22,10 @@ public sealed class BattleSession
     private readonly IReadOnlyDictionary<string, SkillData> skills;
     private readonly IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects;
     private readonly IReadOnlyDictionary<string, BattleEffectData> battleEffects;
+    private readonly IReadOnlyDictionary<string, ItemData> items;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> itemEffects;
+    private readonly ItemInventory itemInventory;
+    private readonly EnemyKnowledge enemyKnowledge;
     private readonly BattleUnit mainCharacter;
     private readonly IReadOnlyList<Anima> animas;
     private readonly BattleActionExecutor actionExecutor;
@@ -60,14 +64,14 @@ public sealed class BattleSession
 
     //스킬 없이 기본 행동만 가능한 전투를 만듦
     public BattleSession(BattleTurnOrder turnOrder, IEnumerable<BattleUnit> units,
-        Random random, bool bossBattle = false)
+        Random random, EnemyKnowledge enemyKnowledge, bool bossBattle = false)
         : this(turnOrder, units,
             new ReadOnlyDictionary<string, SkillData>(new Dictionary<string, SkillData>()),
             new ReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>>(
                 new Dictionary<string, IReadOnlyList<SkillEffectData>>()),
             new ReadOnlyDictionary<string, BattleEffectData>(
                 new Dictionary<string, BattleEffectData>()),
-            Array.Empty<Anima>(), random, bossBattle)
+            Array.Empty<Anima>(), random, enemyKnowledge, bossBattle)
     {
     }
 
@@ -76,9 +80,10 @@ public sealed class BattleSession
         IReadOnlyDictionary<string, SkillData> skills,
         IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
         IReadOnlyDictionary<string, BattleEffectData> battleEffects,
-        Random random, bool bossBattle = false)
+        Random random, EnemyKnowledge enemyKnowledge,
+        bool bossBattle = false)
         : this(turnOrder, units, skills, skillEffects, battleEffects,
-            Array.Empty<Anima>(), random, bossBattle)
+            Array.Empty<Anima>(), random, enemyKnowledge, bossBattle)
     {
     }
 
@@ -87,7 +92,28 @@ public sealed class BattleSession
         IReadOnlyDictionary<string, SkillData> skills,
         IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
         IReadOnlyDictionary<string, BattleEffectData> battleEffects,
-        IEnumerable<Anima> animas, Random random, bool bossBattle = false)
+        IEnumerable<Anima> animas, Random random,
+        EnemyKnowledge enemyKnowledge, bool bossBattle = false)
+        : this(turnOrder, units, skills, skillEffects, battleEffects,
+            new ReadOnlyDictionary<string, ItemData>(
+                new Dictionary<string, ItemData>()),
+            new ReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>>(
+                new Dictionary<string, IReadOnlyList<ItemEffectData>>()),
+            new ItemInventory(), animas, random,
+            enemyKnowledge, bossBattle)
+    {
+    }
+
+    //전투에 사용할 모든 원본 데이터와 런타임 상태를 연결함
+    public BattleSession(BattleTurnOrder turnOrder, IEnumerable<BattleUnit> units,
+        IReadOnlyDictionary<string, SkillData> skills,
+        IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
+        IReadOnlyDictionary<string, BattleEffectData> battleEffects,
+        IReadOnlyDictionary<string, ItemData> items,
+        IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> itemEffects,
+        ItemInventory itemInventory, IEnumerable<Anima> animas,
+        Random random, EnemyKnowledge enemyKnowledge,
+        bool bossBattle = false)
     {
         #region 입력값 검사
 
@@ -96,8 +122,12 @@ public sealed class BattleSession
         if (skills == null) throw new ArgumentNullException(nameof(skills), "스킬 목록이 필요합니다.");
         if (skillEffects == null) throw new ArgumentNullException(nameof(skillEffects), "스킬 효과 목록이 필요합니다.");
         if (battleEffects == null) throw new ArgumentNullException(nameof(battleEffects), "전투 효과 목록이 필요합니다.");
+        if (items == null) throw new ArgumentNullException(nameof(items), "아이템 목록이 필요합니다.");
+        if (itemEffects == null) throw new ArgumentNullException(nameof(itemEffects), "아이템 효과 목록이 필요합니다.");
+        if (itemInventory == null) throw new ArgumentNullException(nameof(itemInventory), "아이템 보유 수량이 필요합니다.");
         if (animas == null) throw new ArgumentNullException(nameof(animas), "지참 아니마 목록이 필요합니다.");
         if (random == null) throw new ArgumentNullException(nameof(random), "행동 난수 생성기가 필요합니다.");
+        if (enemyKnowledge == null) throw new ArgumentNullException(nameof(enemyKnowledge), "적 상성 기록이 필요합니다.");
 
         #endregion
 
@@ -106,9 +136,14 @@ public sealed class BattleSession
         this.skills = skills;
         this.skillEffects = skillEffects;
         this.battleEffects = battleEffects;
+        this.items = items;
+        this.itemEffects = itemEffects;
+        this.itemInventory = itemInventory;
+        this.enemyKnowledge = enemyKnowledge;
         this.animas = CopyAnimas(animas);
         this.random = random;
-        actionExecutor = new BattleActionExecutor(random, bossBattle, battleEffects);
+        actionExecutor = new BattleActionExecutor(random, bossBattle,
+            battleEffects, this.enemyKnowledge);
         CheckOrderMembers();
         CheckAnimas();
         UpdateOutcome();
@@ -157,19 +192,39 @@ public sealed class BattleSession
             throw new InvalidOperationException("총공격은 총공격 선택 흐름에서 실행해야 합니다.");
         if (mentalAction != null && !IsSameAction(action, mentalAction))
             throw new InvalidOperationException("정신 상태로 정해진 행동만 실행할 수 있습니다.");
+        if (mentalAction == null && action.ReverseTargetSide)
+            throw new InvalidOperationException("대상 진영 변경은 매혹 행동에만 사용할 수 있습니다.");
 
         SkillData skill = null;
-        IReadOnlyList<SkillEffectData> effects = null;
+        IReadOnlyList<SkillEffectData> selectedSkillEffects = null;
+        ItemData item = null;
+        IReadOnlyList<ItemEffectData> selectedItemEffects = null;
+        int? itemCountAfter = null;
+
         if (action.Type == BattleActionType.Skill)
         {
             skill = GetOwnedActiveSkill(currentUnit, action.SkillId);
-            effects = skillEffects[skill.Id];
+            selectedSkillEffects = skillEffects[skill.Id];
             CheckCost(currentUnit, skill);
         }
+        else if (action.Type == BattleActionType.Item)
+        {
+            item = GetUsableItem(currentUnit, action.ItemId);
+            selectedItemEffects = itemEffects[item.Id];
+        }
 
-        IReadOnlyList<BattleUnit> targets = ResolveTargets(action, currentUnit, skill);
-        BattleActionResult result = actionExecutor.Execute(
-            action, currentUnit, targets, skill, effects);
+        IReadOnlyList<BattleUnit> targets = ResolveTargets(
+            action, currentUnit, skill, item);
+        if (item != null)
+        {
+            if (!itemInventory.RemoveOne(item.Id))
+                throw new InvalidOperationException("아이템 보유 수량이 부족합니다.");
+            itemCountAfter = itemInventory.GetCount(item.Id);
+        }
+
+        BattleActionResult result = actionExecutor.Execute(action, currentUnit,
+            targets, skill, selectedSkillEffects, item, selectedItemEffects,
+            itemCountAfter);
         pendingOneMoreUnitId = result.OneMoreUnitId;
         allOutAttackAvailable = CanOfferAllOutAttack(result);
         actionExecuted = true;
@@ -288,10 +343,45 @@ public sealed class BattleSession
                 skill.UseType != SkillUseType.Active ||
                 !skillEffects.ContainsKey(skillId))
                 continue;
-            if (CanPayCost(currentUnit, skill))
+            if (CanPayCost(currentUnit, skill) && CanUseSkill(currentUnit, skill))
                 result.Add(skill);
         }
         return result.AsReadOnly();
+    }
+
+    //현재 행동자가 전투에서 사용할 수 있는 보유 아이템을 구함
+    public IReadOnlyList<ItemData> GetUsableItems()
+    {
+        if (currentUnit == null)
+            throw new InvalidOperationException("현재 행동자가 없습니다.");
+        if (currentUnit.IsEnemy)
+            return Array.Empty<ItemData>();
+
+        var result = new List<ItemData>();
+        foreach (ItemData item in items.Values)
+        {
+            if (CanUseInBattle(item) && itemEffects.ContainsKey(item.Id) &&
+                itemInventory.CanUse(item.Id) && HasItemTarget(item, currentUnit))
+                result.Add(item);
+        }
+        return result.AsReadOnly();
+    }
+
+    //현재 가진 아이템 수량을 구함
+    public int GetItemCount(string itemId)
+    {
+        return itemInventory.GetCount(itemId);
+    }
+
+    //현재 전투에서 적의 공개된 상성을 구함. 미공개면 null을 반환함
+    public ResistanceType? GetKnownResistance(string unitId, DamageType damageType)
+    {
+        BattleDataChecks.CheckText(unitId);
+        if (!units.TryGetValue(unitId, out BattleUnit unit) || !unit.IsEnemy)
+            throw new InvalidOperationException("상성을 확인할 수 없는 대상입니다.");
+        if (!enemyKnowledge.IsRevealed(unit.Data.Id, damageType))
+            return null;
+        return unit.Resistances.Get(damageType);
     }
 
     //다음 행동자를 찾음. 죽거나 이탈한 전투원은 차례를 건너뜀.
@@ -363,49 +453,74 @@ public sealed class BattleSession
         return true;
     }
 
-    //행동 종류와 스킬 대상 방식에 맞는 실제 대상을 구함
+    //행동 종류와 대상 방식에 맞는 실제 대상을 구함
     private IReadOnlyList<BattleUnit> ResolveTargets(
-        BattleAction action, BattleUnit actor, SkillData skill)
+        BattleAction action, BattleUnit actor, SkillData skill, ItemData item)
     {
-        if (action.Type == BattleActionType.Guard)
-            return Array.Empty<BattleUnit>();
-        if (action.Type == BattleActionType.Skip ||
+        if (action.Type == BattleActionType.Guard ||
+            action.Type == BattleActionType.Skip ||
             action.Type == BattleActionType.Escape ||
-            action.Type == BattleActionType.UseRandomItem ||
             action.Type == BattleActionType.DiscardMoney)
             return Array.Empty<BattleUnit>();
         if (action.Type == BattleActionType.BasicAttack)
-            return GetTarget(action.TargetId, actor, !action.ReverseTargetSide);
+            return GetLivingTarget(action.TargetId, actor, !action.ReverseTargetSide);
 
-        switch (skill.TargetType)
+        BattleTargetType targetType = skill != null
+            ? skill.TargetType
+            : item?.TargetType ?? throw new InvalidOperationException("행동 대상 정보가 없습니다.");
+        return ResolveTargets(action, actor, targetType);
+    }
+
+    //대상 종류에 맞는 실제 전투원을 구함
+    private IReadOnlyList<BattleUnit> ResolveTargets(
+        BattleAction action, BattleUnit actor, BattleTargetType targetType)
+    {
+        switch (targetType)
         {
-            case SkillTargetType.OneEnemy:
-                return GetTarget(action.TargetId, actor, !action.ReverseTargetSide);
-            case SkillTargetType.AllEnemies:
+            case BattleTargetType.OneEnemy:
+                return GetLivingTarget(action.TargetId, actor, !action.ReverseTargetSide);
+            case BattleTargetType.AllEnemies:
                 CheckNoTargetId(action);
                 return GetUnitsBySide(!action.ReverseTargetSide);
-            case SkillTargetType.OneAlly:
-                return GetTarget(action.TargetId, actor, action.ReverseTargetSide);
-            case SkillTargetType.AllAllies:
+            case BattleTargetType.OneAlly:
+                return GetLivingTarget(action.TargetId, actor, action.ReverseTargetSide);
+            case BattleTargetType.AllAllies:
                 CheckNoTargetId(action);
                 return GetUnitsBySide(action.ReverseTargetSide);
-            case SkillTargetType.Self:
+            case BattleTargetType.Self:
                 if (action.ReverseTargetSide)
-                    throw new InvalidOperationException("자기 대상 스킬은 대상 진영을 바꿀 수 없습니다.");
+                    throw new InvalidOperationException("자기 대상 행동은 대상 진영을 바꿀 수 없습니다.");
                 CheckNoTargetId(action);
                 return new[] { actor };
+            case BattleTargetType.OneDeadAlly:
+                if (action.ReverseTargetSide)
+                    throw new InvalidOperationException("전투 불능 대상 행동은 대상 진영을 바꿀 수 없습니다.");
+                return GetDeadTarget(action.TargetId, actor);
             default:
-                throw new ArgumentOutOfRangeException(nameof(skill), "지원하지 않는 스킬 대상입니다.");
+                throw new ArgumentOutOfRangeException(nameof(targetType), "지원하지 않는 대상 종류입니다.");
         }
     }
 
     //ID로 살아 있는 한 명의 적 또는 아군을 구함
-    private IReadOnlyList<BattleUnit> GetTarget(
+    private IReadOnlyList<BattleUnit> GetLivingTarget(
         string targetId, BattleUnit actor, bool targetOpponent)
+    {
+        return GetTarget(targetId, actor, targetOpponent, deadOnly: false);
+    }
+
+    //ID로 전투 불능 상태인 아군 한 명을 구함
+    private IReadOnlyList<BattleUnit> GetDeadTarget(string targetId, BattleUnit actor)
+    {
+        return GetTarget(targetId, actor, targetOpponent: false, deadOnly: true);
+    }
+
+    //ID와 생존 조건에 맞는 대상 한 명을 구함
+    private IReadOnlyList<BattleUnit> GetTarget(string targetId,
+        BattleUnit actor, bool targetOpponent, bool deadOnly)
     {
         BattleDataChecks.CheckText(targetId);
         if (!units.TryGetValue(targetId, out BattleUnit target) ||
-            target.IsDead || target.HasLeftBattle)
+            target.HasLeftBattle || target.IsDead != deadOnly)
             throw new InvalidOperationException("선택할 수 없는 대상입니다.");
 
         bool isOpponent = target.IsEnemy != actor.IsEnemy;
@@ -418,11 +533,17 @@ public sealed class BattleSession
     private static void CheckNoTargetId(BattleAction action)
     {
         if (action.TargetId != null)
-            throw new InvalidOperationException("이 스킬은 대상 ID를 직접 선택하지 않습니다.");
+            throw new InvalidOperationException("이 행동은 대상 ID를 직접 선택하지 않습니다.");
     }
 
-    //현재 행동자 기준으로 같은 편 또는 상대편을 구함
+    //현재 행동자 기준으로 같은 편 또는 상대편의 살아 있는 전투원을 구함
     private IReadOnlyList<BattleUnit> GetUnitsBySide(bool opponents)
+    {
+        return GetUnitsBySide(opponents, deadOnly: false);
+    }
+
+    //현재 행동자 기준으로 같은 편 또는 상대편을 생존 조건에 맞춰 구함
+    private IReadOnlyList<BattleUnit> GetUnitsBySide(bool opponents, bool deadOnly)
     {
         if (currentUnit == null)
             throw new InvalidOperationException("현재 행동자가 없습니다.");
@@ -432,7 +553,7 @@ public sealed class BattleSession
         {
             BattleUnit unit = units[entry.UnitId];
             bool otherSide = unit.IsEnemy != currentUnit.IsEnemy;
-            if (otherSide == opponents && !unit.IsDead && !unit.HasLeftBattle)
+            if (otherSide == opponents && unit.IsDead == deadOnly && !unit.HasLeftBattle)
                 result.Add(unit);
         }
         return result.AsReadOnly();
@@ -456,7 +577,26 @@ public sealed class BattleSession
             throw new InvalidOperationException("패시브 스킬은 행동으로 사용할 수 없습니다.");
         if (!skillEffects.ContainsKey(skill.Id))
             throw new InvalidOperationException("스킬에 실행 효과가 없습니다.");
+        if (!CanUseSkill(actor, skill))
+            throw new InvalidOperationException("현재 분석 스킬을 사용할 수 없습니다.");
         return skill;
+    }
+
+    //분석 스킬은 첫 행동 순환이 끝난 뒤 동료만 사용할 수 있음
+    private bool CanUseSkill(BattleUnit actor, SkillData skill)
+    {
+        if (!HasAnalyzeEffect(skill)) return true;
+        return actor.Data.Role == UnitRole.Companion && Round > 1;
+    }
+
+    //적 분석 효과가 든 스킬인지 확인함
+    private bool HasAnalyzeEffect(SkillData skill)
+    {
+        foreach (SkillEffectData effect in skillEffects[skill.Id])
+        {
+            if (effect.Type == SkillEffectType.Analyze) return true;
+        }
+        return false;
     }
 
     //스킬 비용을 지불할 수 있는지 확인함
@@ -481,6 +621,46 @@ public sealed class BattleSession
     {
         if (!CanPayCost(actor, skill))
             throw new InvalidOperationException("스킬 사용에 필요한 자원이 부족합니다.");
+    }
+
+    //전투에서 사용할 수 있는 보유 아이템을 확인함
+    private ItemData GetUsableItem(BattleUnit actor, string itemId)
+    {
+        if (actor.IsEnemy)
+            throw new InvalidOperationException("적은 파티 아이템을 사용할 수 없습니다.");
+        if (!items.TryGetValue(itemId, out ItemData item) ||
+            !CanUseInBattle(item) || !itemEffects.TryGetValue(item.Id,
+                out IReadOnlyList<ItemEffectData> effects) || effects.Count == 0)
+            throw new InvalidOperationException("전투에서 사용할 수 없는 아이템입니다.");
+        if (!itemInventory.CanUse(item.Id))
+            throw new InvalidOperationException("아이템 보유 수량이 부족합니다.");
+        return item;
+    }
+
+    //아이템을 전투 중에 사용할 수 있는지 확인함
+    private static bool CanUseInBattle(ItemData item)
+    {
+        return item.UseType == ItemUseType.BattleOnly ||
+               item.UseType == ItemUseType.Both;
+    }
+
+    //아이템이 현재 고를 수 있는 대상을 가지는지 확인함
+    private bool HasItemTarget(ItemData item, BattleUnit actor)
+    {
+        switch (item.TargetType)
+        {
+            case BattleTargetType.OneEnemy:
+            case BattleTargetType.AllEnemies:
+                return GetUnitsBySide(true).Count > 0;
+            case BattleTargetType.OneAlly:
+            case BattleTargetType.AllAllies:
+            case BattleTargetType.Self:
+                return !actor.IsDead && !actor.HasLeftBattle;
+            case BattleTargetType.OneDeadAlly:
+                return GetUnitsBySide(false, deadOnly: true).Count > 0;
+            default:
+                return false;
+        }
     }
 
     //현재 정신 상태가 강제하는 행동을 한 번만 정함
@@ -517,12 +697,46 @@ public sealed class BattleSession
         switch (random.Next(3))
         {
             case 0:
-                return new BattleAction(actor.BattleId, BattleActionType.UseRandomItem);
+                return ChooseRandomItemAction(actor);
             case 1:
                 return new BattleAction(actor.BattleId, BattleActionType.DiscardMoney);
             default:
                 return new BattleAction(actor.BattleId, BattleActionType.Skip);
         }
+    }
+
+    //도취로 사용할 수 있는 아이템과 대상을 무작위로 고름
+    private BattleAction ChooseRandomItemAction(BattleUnit actor)
+    {
+        if (actor.IsEnemy)
+            return new BattleAction(actor.BattleId, BattleActionType.Skip);
+
+        var actions = new List<BattleAction>();
+        foreach (ItemData item in GetUsableItems())
+            AddItemActions(actor, item, actions);
+        return actions.Count == 0
+            ? new BattleAction(actor.BattleId, BattleActionType.Skip)
+            : actions[random.Next(actions.Count)];
+    }
+
+    //아이템으로 고를 수 있는 대상별 행동을 추가함
+    private void AddItemActions(BattleUnit actor, ItemData item,
+        ICollection<BattleAction> actions)
+    {
+        if (item.TargetType == BattleTargetType.OneEnemy ||
+            item.TargetType == BattleTargetType.OneAlly ||
+            item.TargetType == BattleTargetType.OneDeadAlly)
+        {
+            bool opponents = item.TargetType == BattleTargetType.OneEnemy;
+            bool deadOnly = item.TargetType == BattleTargetType.OneDeadAlly;
+            foreach (BattleUnit target in GetUnitsBySide(opponents, deadOnly))
+                actions.Add(new BattleAction(actor.BattleId,
+                    BattleActionType.Item, target.BattleId, itemId: item.Id));
+            return;
+        }
+
+        actions.Add(new BattleAction(actor.BattleId,
+            BattleActionType.Item, itemId: item.Id));
     }
 
     //공황은 10% 확률로 도주하고 주인공은 도주하지 않음
@@ -580,13 +794,13 @@ public sealed class BattleSession
                 (!healing && !HasOnlyBuffEffects(skill)))
                 continue;
 
-            if (skill.TargetType == SkillTargetType.OneAlly)
+            if (skill.TargetType == BattleTargetType.OneAlly)
             {
                 foreach (BattleUnit target in opponents)
                     result.Add(new BattleAction(actor.BattleId,
                         BattleActionType.Skill, target.BattleId, skill.Id, true));
             }
-            else if (skill.TargetType == SkillTargetType.AllAllies &&
+            else if (skill.TargetType == BattleTargetType.AllAllies &&
                      opponents.Count > 0)
             {
                 result.Add(new BattleAction(actor.BattleId,
@@ -633,6 +847,7 @@ public sealed class BattleSession
                string.Equals(left.UnitId, right.UnitId, StringComparison.Ordinal) &&
                string.Equals(left.TargetId, right.TargetId, StringComparison.Ordinal) &&
                string.Equals(left.SkillId, right.SkillId, StringComparison.Ordinal) &&
+               string.Equals(left.ItemId, right.ItemId, StringComparison.Ordinal) &&
                left.ReverseTargetSide == right.ReverseTargetSide;
     }
 

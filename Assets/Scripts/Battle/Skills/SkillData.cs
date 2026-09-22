@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 /// <summary>
 /// 스킬 원본 데이터. <br/>
@@ -17,11 +17,11 @@ public sealed class SkillData
     //사용 비용
     public int Cost { get; }
     //스킬 대상
-    public SkillTargetType TargetType { get; }
+    public BattleTargetType TargetType { get; }
 
     //스킬 데이터를 만듦
     public SkillData(string id, string displayName, SkillUseType useType,
-        SkillCostType costType, int cost, SkillTargetType targetType)
+        SkillCostType costType, int cost, BattleTargetType targetType)
     {
         #region 입력값 검사
 
@@ -31,7 +31,7 @@ public sealed class SkillData
             throw new ArgumentOutOfRangeException(nameof(useType), "알 수 없는 스킬 사용 방식입니다.");
         if (!Enum.IsDefined(typeof(SkillCostType), costType))
             throw new ArgumentOutOfRangeException(nameof(costType), "알 수 없는 비용 종류입니다.");
-        if (!Enum.IsDefined(typeof(SkillTargetType), targetType))
+        if (!Enum.IsDefined(typeof(BattleTargetType), targetType))
             throw new ArgumentOutOfRangeException(nameof(targetType), "알 수 없는 대상 종류입니다.");
         if (cost < 0)
             throw new ArgumentOutOfRangeException(nameof(cost), "스킬 비용은 0 이상이어야 합니다.");

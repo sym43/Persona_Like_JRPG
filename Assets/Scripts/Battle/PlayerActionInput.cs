@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using UnityEngine;
 
 /// <summary>
@@ -23,6 +23,14 @@ public sealed class PlayerActionInput : MonoBehaviour
         BattleUnit unit = GetCurrentUnit();
         battleController.SubmitPlayerAction(
             new BattleAction(unit.BattleId, BattleActionType.Skill, targetId, skillId));
+    }
+
+    //선택한 아이템 사용을 요청함
+    public void ChooseItem(string itemId, string targetId = null)
+    {
+        BattleUnit unit = GetCurrentUnit();
+        battleController.SubmitPlayerAction(new BattleAction(
+            unit.BattleId, BattleActionType.Item, targetId, itemId: itemId));
     }
 
     //현재 전투원을 방어 상태로 만듦

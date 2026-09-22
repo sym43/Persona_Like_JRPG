@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 
@@ -17,14 +17,18 @@ public sealed class BattleImpactResult
     public ResistanceType? AppliedResistance { get; }
     public int Damage { get; }
     public int Healing { get; }
+    public int SpRecovery { get; }
+    public bool Revived { get; }
     public bool Downed { get; }
     public bool Guarded { get; }
     public int HpAfter { get; }
+    public int SpAfter { get; }
 
     internal BattleImpactResult(int effectOrder, int hitNumber,
         string targetUnitId, string affectedUnitId, bool hit, bool critical,
         ResistanceType? resistance, ResistanceType? appliedResistance,
-        int damage, int healing, bool downed, bool guarded, int hpAfter)
+        int damage, int healing, int spRecovery, bool revived,
+        bool downed, bool guarded, int hpAfter, int spAfter)
     {
         EffectOrder = effectOrder;
         HitNumber = hitNumber;
@@ -36,9 +40,12 @@ public sealed class BattleImpactResult
         AppliedResistance = appliedResistance;
         Damage = damage;
         Healing = healing;
+        SpRecovery = spRecovery;
+        Revived = revived;
         Downed = downed;
         Guarded = guarded;
         HpAfter = hpAfter;
+        SpAfter = spAfter;
     }
 }
 
@@ -51,22 +58,32 @@ public sealed class BattleActionResult
     public BattleActionType Type { get; }
     public string UnitId { get; }
     public string SkillId { get; }
+    public string ItemId { get; }
+    public int? ItemCountAfter { get; }
+    public string AnalyzedUnitId { get; }
     public string OneMoreUnitId { get; }
     public IReadOnlyList<BattleImpactResult> Impacts { get; }
     public IReadOnlyList<BattleEffectResult> EffectResults { get; }
 
     internal BattleActionResult(BattleActionType type, string unitId,
-        string skillId, string oneMoreUnitId,
+        string skillId, string itemId, int? itemCountAfter,
+        string analyzedUnitId, string oneMoreUnitId,
         IEnumerable<BattleImpactResult> impacts,
         IEnumerable<BattleEffectResult> effectResults = null)
     {
         if (impacts == null)
             throw new ArgumentNullException(nameof(impacts), "행동 결과 목록이 필요합니다.");
+        if (analyzedUnitId != null) BattleDataChecks.CheckText(analyzedUnitId);
         if (oneMoreUnitId != null) BattleDataChecks.CheckText(oneMoreUnitId);
+        if (itemCountAfter < 0)
+            throw new ArgumentOutOfRangeException(nameof(itemCountAfter), "남은 아이템 수는 0 이상이어야 합니다.");
 
         Type = type;
         UnitId = unitId;
         SkillId = skillId;
+        ItemId = itemId;
+        ItemCountAfter = itemCountAfter;
+        AnalyzedUnitId = analyzedUnitId;
         OneMoreUnitId = oneMoreUnitId;
         Impacts = new ReadOnlyCollection<BattleImpactResult>(new List<BattleImpactResult>(impacts));
         EffectResults = new ReadOnlyCollection<BattleEffectResult>(

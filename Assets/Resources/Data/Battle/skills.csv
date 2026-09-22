@@ -3,3 +3,4 @@ sample_slash,테스트 절단,Active,None,0,OneEnemy
 sample_fire,테스트 화염,Active,Sp,4,OneEnemy
 sample_heal,테스트 회복,Active,Sp,3,OneAlly
 sample_critical,테스트 치명타 상승,Passive,None,0,Self
+sample_analyze,테스트 분석,Active,Sp,35,OneEnemy

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -14,8 +14,12 @@ public sealed class BattleTestStarter : MonoBehaviour
     private const string PlayerId = "test_player";
     private const string EnemyId = "test_enemy";
     private const string SkillId = "test_slash";
+    private const string ItemId = "test_fire_item";
     private const string FirstAnimaInstanceId = "test_anima_1";
     private const string SecondAnimaInstanceId = "test_anima_2";
+
+    //임시: 아이템 행동을 한 번만 확인함.
+    private bool itemUsed;
 
     //임시: 플레이 모드에서 테스트 전투를 자동으로 시작함.
     private void Start()
@@ -53,6 +57,14 @@ public sealed class BattleTestStarter : MonoBehaviour
             unit.AnimaInstanceId == FirstAnimaInstanceId)
             battleController.ChangeAnima(SecondAnimaInstanceId);
 
+        if (!itemUsed)
+        {
+            itemUsed = true;
+            battleController.SubmitPlayerAction(new BattleAction(
+                unit.BattleId, BattleActionType.Item, EnemyId, itemId: ItemId));
+            return;
+        }
+
         battleController.SubmitPlayerAction(new BattleAction(
             unit.BattleId, BattleActionType.Skill, EnemyId, SkillId));
     }
@@ -63,7 +75,14 @@ public sealed class BattleTestStarter : MonoBehaviour
         foreach (BattleImpactResult impact in result.Impacts)
         {
             Debug.Log($"행동 결과: {result.UnitId} → {impact.AffectedUnitId}, " +
-                      $"피해 {impact.Damage}, 회복 {impact.Healing}, 남은 HP {impact.HpAfter}");
+                      $"피해 {impact.Damage}, HP 회복 {impact.Healing}, " +
+                      $"SP 회복 {impact.SpRecovery}, 부활 {impact.Revived}, " +
+                      $"남은 HP {impact.HpAfter}, 남은 SP {impact.SpAfter}");
+        }
+
+        if (result.ItemId != null)
+        {
+            Debug.Log($"아이템 사용: {result.ItemId}, 남은 수량 {result.ItemCountAfter}");
         }
     }
 
@@ -99,7 +118,7 @@ public sealed class BattleTestStarter : MonoBehaviour
         }, BattleEncounterType.Ambushed, new System.Random(1));
 
         var skill = new SkillData(SkillId, "테스트 참격",
-            SkillUseType.Active, SkillCostType.Sp, 3, SkillTargetType.OneEnemy);
+            SkillUseType.Active, SkillCostType.Sp, 3, BattleTargetType.OneEnemy);
         var skills = new Dictionary<string, SkillData>
         {
             { skill.Id, skill }
@@ -117,8 +136,30 @@ public sealed class BattleTestStarter : MonoBehaviour
         };
 
         var battleEffects = new Dictionary<string, BattleEffectData>();
+        var item = new ItemData(ItemId, "테스트 화염 아이템",
+            ItemUseType.BattleOnly, BattleTargetType.OneEnemy);
+        var items = new Dictionary<string, ItemData>
+        {
+            { item.Id, item }
+        };
+        var itemEffects = new Dictionary<string, IReadOnlyList<ItemEffectData>>
+        {
+            {
+                item.Id,
+                new[]
+                {
+                    new ItemEffectData(item.Id, 0, ItemEffectType.Damage,
+                        DamageType.Anger, 10, ItemAmountType.Fixed, 100)
+                }
+            }
+        };
+        var inventory = new ItemInventory(new Dictionary<string, int>
+        {
+            { item.Id, 1 }
+        });
         return new BattleSession(order, units, skills, effects, battleEffects,
-            new[] { firstAnima, secondAnima }, new System.Random(2));
+            items, itemEffects, inventory, new[] { firstAnima, secondAnima },
+            new System.Random(2), new EnemyKnowledge());
     }
 
     //임시: 테스트용 주인공을 만듦.
@@ -150,7 +191,7 @@ public sealed class BattleTestStarter : MonoBehaviour
             UnitRole.Enemy, 10, 50, 0, null);
         return new BattleUnit(EnemyId, data, null, null, null,
             0, 10, 50, 0, 50, 0,
-            new BattleStats(8, 8, 10, 20, 8), CreateNormalResistances(),
+            new BattleStats(8, 8, 10, 20, 8), CreateEnemyResistances(),
             CreateNormalMentalResistance(), Array.Empty<string>(), EmptyEquipment(),
             new BasicAttackData(10, 100, DamageType.Strike), 5, 0);
     }
@@ -165,6 +206,21 @@ public sealed class BattleTestStarter : MonoBehaviour
                 damageType, ResistanceType.Normal));
         }
 
+        return new ResistanceTable(entries);
+    }
+
+    //임시: 화염 아이템의 약점·원모어 판정을 확인할 적 상성을 만듦.
+    private static ResistanceTable CreateEnemyResistances()
+    {
+        var entries = new List<KeyValuePair<DamageType, ResistanceType>>();
+        foreach (DamageType damageType in Enum.GetValues(typeof(DamageType)))
+        {
+            ResistanceType resistance = damageType == DamageType.Anger
+                ? ResistanceType.Weak
+                : ResistanceType.Normal;
+            entries.Add(new KeyValuePair<DamageType, ResistanceType>(
+                damageType, resistance));
+        }
         return new ResistanceTable(entries);
     }
 

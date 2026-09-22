@@ -30,11 +30,13 @@ public sealed class SaveManager
         this.battleDataLoader = battleDataLoader ?? throw new ArgumentNullException(nameof(battleDataLoader), "전투 데이터 로더가 필요합니다.");
     }
 
-    //보유 아니마 상태를 저장함
+    //보유 상태와 적 상성 기록을 저장함
     public void Save(string slotId, string contentVersion, string saveLocation,
-        IEnumerable<Anima> ownedAnimas)
+        IEnumerable<Anima> ownedAnimas, ItemInventory itemInventory,
+        EnemyKnowledge enemyKnowledge)
     {
-        var saveData = GameSaveData.Capture(contentVersion, saveLocation, ownedAnimas);
+        var saveData = GameSaveData.Capture(contentVersion, saveLocation,
+            ownedAnimas, itemInventory, enemyKnowledge);
         saveStore.Save(slotId, saveData);
     }
 
@@ -66,6 +68,44 @@ public sealed class SaveManager
         }
 
         return new ReadOnlyCollection<Anima>(restored);
+    }
+
+    //저장 파일을 읽고 아이템 수량을 복원함
+    public ItemInventory LoadItemInventory(string slotId)
+    {
+        var saveData = Load(slotId);
+        var battleData = battleDataLoader.Load();
+        var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+
+        foreach (var savedItem in saveData.items)
+        {
+            if (!battleData.Items.ContainsKey(savedItem.itemId))
+                throw new FormatException($"세이브에 없는 아이템 ID가 있습니다: {savedItem.itemId}");
+
+            counts.Add(savedItem.itemId, savedItem.count);
+        }
+
+        return new ItemInventory(counts);
+    }
+
+    //저장 파일을 읽고 적 상성 기록을 복원함
+    public EnemyKnowledge LoadEnemyKnowledge(string slotId)
+    {
+        var saveData = Load(slotId);
+        var battleData = battleDataLoader.Load();
+        var result = new EnemyKnowledge();
+
+        foreach (EnemyKnowledgeSaveData savedKnowledge in saveData.enemyKnowledge)
+        {
+            if (!battleData.BattleUnits.TryGetValue(savedKnowledge.enemyDataId,
+                    out BattleUnitData unitData) ||
+                unitData.Role != UnitRole.Enemy)
+                throw new FormatException($"세이브에 없는 적 원본 ID가 있습니다: {savedKnowledge.enemyDataId}");
+
+            foreach (DamageType damageType in savedKnowledge.revealedDamageTypes)
+                result.Reveal(savedKnowledge.enemyDataId, damageType);
+        }
+        return result;
     }
 
     //슬롯 파일이 있는지 확인함

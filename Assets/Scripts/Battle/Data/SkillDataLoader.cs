@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using UnityEngine;
@@ -61,7 +61,7 @@ public sealed class SkillDataLoader
                     CsvTableReader.ReadEnum<SkillUseType>(row, 2, ColumnNames[2], sourceName, rowNumber),
                     CsvTableReader.ReadEnum<SkillCostType>(row, 3, ColumnNames[3], sourceName, rowNumber),
                     CsvTableReader.ReadNumber(row, 4, ColumnNames[4], sourceName, rowNumber),
-                    CsvTableReader.ReadEnum<SkillTargetType>(row, 5, ColumnNames[5], sourceName, rowNumber));
+                    CsvTableReader.ReadEnum<BattleTargetType>(row, 5, ColumnNames[5], sourceName, rowNumber));
 
                 if (!skills.TryAdd(skill.Id, skill))
                     throw new FormatException($"{sourceName} {rowNumber}행에 중복된 스킬 ID가 있습니다: {skill.Id}");

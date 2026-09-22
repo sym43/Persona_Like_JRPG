@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 /// <summary>
@@ -48,23 +48,23 @@ public sealed class EnemyActionSelector
     {
         switch (skill.TargetType)
         {
-            case SkillTargetType.OneEnemy:
+            case BattleTargetType.OneEnemy:
                 foreach (BattleUnit target in opponents)
                     choices.Add(new BattleAction(actor.BattleId,
                         BattleActionType.Skill, target.BattleId, skill.Id));
                 return;
-            case SkillTargetType.AllEnemies:
+            case BattleTargetType.AllEnemies:
                 if (opponents.Count > 0)
                     choices.Add(new BattleAction(actor.BattleId,
                         BattleActionType.Skill, skillId: skill.Id));
                 return;
-            case SkillTargetType.OneAlly:
+            case BattleTargetType.OneAlly:
                 foreach (BattleUnit target in allies)
                     choices.Add(new BattleAction(actor.BattleId,
                         BattleActionType.Skill, target.BattleId, skill.Id));
                 return;
-            case SkillTargetType.AllAllies:
-            case SkillTargetType.Self:
+            case BattleTargetType.AllAllies:
+            case BattleTargetType.Self:
                 choices.Add(new BattleAction(actor.BattleId,
                     BattleActionType.Skill, skillId: skill.Id));
                 return;

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 
 /// <summary>
@@ -165,6 +165,19 @@ public sealed class BattleUnit
         #endregion
 
         Hp = (int)Math.Min(MaxHp, (long)Hp + amount);
+    }
+
+    //전투 불능 상태에서 지정한 HP로 부활함
+    public void Revive(int hp)
+    {
+        if (!IsDead)
+            throw new InvalidOperationException("전투 불능 상태가 아닙니다.");
+        if (hp <= 0)
+            throw new ArgumentOutOfRangeException(nameof(hp), "부활 HP는 1 이상이어야 합니다.");
+
+        Hp = Math.Min(MaxHp, hp);
+        IsDown = false;
+        IsGuarding = false;
     }
 
     //SP를 사용함. 부족하면 false를 반환함

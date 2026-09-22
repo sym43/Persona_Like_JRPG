@@ -2,3 +2,4 @@
 sample_slash,0,Damage,Slash,100,95,1,0,,100
 sample_fire,0,Damage,Anger,90,95,1,0,,100
 sample_heal,0,Heal,,50,100,1,0,,100
+sample_analyze,0,Analyze,,0,100,1,0,,100

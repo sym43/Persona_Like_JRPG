@@ -47,6 +47,54 @@ internal static class SaveDataChecks
         }
 
         #endregion
+
+        #region 아이템 목록 검사
+
+        if (saveData.items == null)
+            throw new FormatException("보유 아이템 목록이 없습니다.");
+
+        var itemIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var item in saveData.items)
+        {
+            if (item == null)
+                throw new FormatException("보유 아이템 목록에 비어 있는 항목이 있습니다.");
+
+            CheckText(item.itemId, "아이템 ID");
+            if (!itemIds.Add(item.itemId))
+                throw new FormatException($"아이템 ID가 중복됩니다: {item.itemId}");
+            if (item.count < 1)
+                throw new FormatException($"아이템 수량이 잘못됐습니다: {item.itemId}");
+        }
+
+        #endregion
+
+        #region 적 상성 기록 검사
+
+        if (saveData.enemyKnowledge == null)
+            throw new FormatException("적 상성 기록이 없습니다.");
+
+        var enemyIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (EnemyKnowledgeSaveData knowledge in saveData.enemyKnowledge)
+        {
+            if (knowledge == null)
+                throw new FormatException("적 상성 기록에 비어 있는 항목이 있습니다.");
+            CheckText(knowledge.enemyDataId, "적 원본 ID");
+            if (!enemyIds.Add(knowledge.enemyDataId))
+                throw new FormatException($"적 원본 ID가 중복됩니다: {knowledge.enemyDataId}");
+            if (knowledge.revealedDamageTypes == null)
+                throw new FormatException($"공개된 속성 목록이 없습니다: {knowledge.enemyDataId}");
+
+            var damageTypes = new HashSet<DamageType>();
+            foreach (DamageType damageType in knowledge.revealedDamageTypes)
+            {
+                if (!Enum.IsDefined(typeof(DamageType), damageType))
+                    throw new FormatException($"알 수 없는 피해 속성이 있습니다: {knowledge.enemyDataId}");
+                if (!damageTypes.Add(damageType))
+                    throw new FormatException($"공개된 피해 속성이 중복됩니다: {knowledge.enemyDataId} / {damageType}");
+            }
+        }
+
+        #endregion
     }
 
     //텍스트 저장값을 검사함

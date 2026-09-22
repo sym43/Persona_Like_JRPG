@@ -1,0 +1,9 @@
+﻿itemId,order,effectType,damageType,amount,amountType,accuracy,effectId,applyChance
+sample_medicine,0,RecoverHp,,50,Fixed,100,,100
+sample_soul_drop,0,RecoverSp,,20,Fixed,100,,100
+sample_revival_bead,0,Revive,,50,Percent,100,,100
+sample_joy_gem,0,Damage,Joy,50,Fixed,100,,100
+sample_power_item,0,ApplyEffect,,0,Fixed,100,attack_up,100
+sample_dekaja_item,0,RemoveBuffs,,0,Fixed,100,,100
+sample_dekunda_item,0,RemoveDebuffs,,0,Fixed,100,,100
+sample_mind_cure,0,CureMentalStates,,0,Fixed,100,,100

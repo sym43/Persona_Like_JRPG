@@ -10,6 +10,8 @@ public sealed class BattleDataSet
     public IReadOnlyDictionary<string, AnimaData> Animas { get; }
     public IReadOnlyDictionary<string, SkillData> Skills { get; }
     public IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> SkillEffects { get; }
+    public IReadOnlyDictionary<string, ItemData> Items { get; }
+    public IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> ItemEffects { get; }
     public IReadOnlyDictionary<string, BattleEffectData> BattleEffects { get; }
     public IReadOnlyDictionary<string, BattleUnitData> BattleUnits { get; }
 
@@ -17,18 +19,24 @@ public sealed class BattleDataSet
         IReadOnlyDictionary<string, AnimaData> animas,
         IReadOnlyDictionary<string, SkillData> skills,
         IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
+        IReadOnlyDictionary<string, ItemData> items,
+        IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> itemEffects,
         IReadOnlyDictionary<string, BattleEffectData> battleEffects,
         IReadOnlyDictionary<string, BattleUnitData> battleUnits)
     {
         if (animas == null) throw new ArgumentNullException(nameof(animas), "아니마 목록이 필요합니다.");
         if (skills == null) throw new ArgumentNullException(nameof(skills), "스킬 목록이 필요합니다.");
         if (skillEffects == null) throw new ArgumentNullException(nameof(skillEffects), "스킬 효과 목록이 필요합니다.");
+        if (items == null) throw new ArgumentNullException(nameof(items), "아이템 목록이 필요합니다.");
+        if (itemEffects == null) throw new ArgumentNullException(nameof(itemEffects), "아이템 효과 목록이 필요합니다.");
         if (battleEffects == null) throw new ArgumentNullException(nameof(battleEffects), "전투 효과 목록이 필요합니다.");
         if (battleUnits == null) throw new ArgumentNullException(nameof(battleUnits), "전투원 목록이 필요합니다.");
 
         Animas = Copy(animas);
         Skills = Copy(skills);
         SkillEffects = CopyLists(skillEffects);
+        Items = Copy(items);
+        ItemEffects = CopyLists(itemEffects);
         BattleEffects = Copy(battleEffects);
         BattleUnits = Copy(battleUnits);
     }

@@ -94,6 +94,24 @@ public sealed class BattleController : MonoBehaviour
         return session?.GetShiftTargets() ?? Array.Empty<BattleUnit>();
     }
 
+    //현재 행동자가 사용할 수 있는 보유 아이템을 구함
+    public IReadOnlyList<ItemData> GetUsableItems()
+    {
+        return session?.GetUsableItems() ?? Array.Empty<ItemData>();
+    }
+
+    //현재 가진 아이템 수량을 구함
+    public int GetItemCount(string itemId)
+    {
+        return session?.GetItemCount(itemId) ?? 0;
+    }
+
+    //현재 적에게 공개된 상성을 구함. 미공개면 null을 반환함
+    public ResistanceType? GetKnownResistance(string unitId, DamageType damageType)
+    {
+        return session?.GetKnownResistance(unitId, damageType);
+    }
+
     //주인공이 전투에 지참한 아니마를 구함
     public IReadOnlyList<Anima> GetBattleAnimas()
     {

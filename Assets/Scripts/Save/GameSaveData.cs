@@ -16,10 +16,15 @@ public sealed class GameSaveData
     public string saveLocation;
     //보유 아니마 상태 목록
     public AnimaSaveData[] ownedAnimas;
+    //보유 아이템 수량 목록
+    public ItemSaveData[] items;
+    //적 원본별 공개된 속성 목록
+    public EnemyKnowledgeSaveData[] enemyKnowledge;
 
-    //현재 보유 상태를 저장 데이터로 묶음
+    //현재 보유 상태와 적 상성 기록을 저장 데이터로 묶음
     public static GameSaveData Capture(string contentVersion, string saveLocation,
-        IEnumerable<Anima> ownedAnimas)
+        IEnumerable<Anima> ownedAnimas, ItemInventory itemInventory,
+        EnemyKnowledge enemyKnowledge)
     {
         #region 입력값 검사
 
@@ -29,6 +34,10 @@ public sealed class GameSaveData
             throw new ArgumentException("저장 위치는 비워 둘 수 없습니다.", nameof(saveLocation));
         if (ownedAnimas == null)
             throw new ArgumentNullException(nameof(ownedAnimas), "보유 아니마 목록이 필요합니다.");
+        if (itemInventory == null)
+            throw new ArgumentNullException(nameof(itemInventory), "아이템 목록이 필요합니다.");
+        if (enemyKnowledge == null)
+            throw new ArgumentNullException(nameof(enemyKnowledge), "적 상성 기록이 필요합니다.");
 
         #endregion
 
@@ -45,12 +54,48 @@ public sealed class GameSaveData
             saves.Add(save);
         }
 
+        var itemSaves = new List<ItemSaveData>(itemInventory.Counts.Count);
+        foreach (var item in itemInventory.Counts)
+        {
+            if (string.IsNullOrWhiteSpace(item.Key))
+                throw new ArgumentException("아이템 ID는 비워 둘 수 없습니다.", nameof(itemInventory));
+            if (item.Value < 1)
+                throw new ArgumentException($"아이템 수량이 잘못됐습니다: {item.Key}", nameof(itemInventory));
+
+            itemSaves.Add(new ItemSaveData
+            {
+                itemId = item.Key,
+                count = item.Value
+            });
+        }
+        itemSaves.Sort((left, right) => StringComparer.Ordinal.Compare(left.itemId, right.itemId));
+
+        var knowledgeSaves = new List<EnemyKnowledgeSaveData>();
+        foreach (string enemyDataId in enemyKnowledge.EnemyDataIds)
+        {
+            IReadOnlyList<DamageType> revealedTypes =
+                enemyKnowledge.GetRevealedTypes(enemyDataId);
+            if (revealedTypes.Count == 0) continue;
+
+            var values = new DamageType[revealedTypes.Count];
+            for (int i = 0; i < values.Length; i++) values[i] = revealedTypes[i];
+            knowledgeSaves.Add(new EnemyKnowledgeSaveData
+            {
+                enemyDataId = enemyDataId,
+                revealedDamageTypes = values
+            });
+        }
+        knowledgeSaves.Sort((left, right) =>
+            StringComparer.Ordinal.Compare(left.enemyDataId, right.enemyDataId));
+
         return new GameSaveData
         {
             saveVersion = JsonSaveStore.CurrentSaveVersion,
             contentVersion = contentVersion,
             saveLocation = saveLocation,
-            ownedAnimas = saves.ToArray()
+            ownedAnimas = saves.ToArray(),
+            items = itemSaves.ToArray(),
+            enemyKnowledge = knowledgeSaves.ToArray()
         };
     }
 }

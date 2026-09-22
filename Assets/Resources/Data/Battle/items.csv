@@ -1,0 +1,9 @@
+﻿id,displayName,useType,targetType
+sample_medicine,샘플 회복약,Both,OneAlly
+sample_soul_drop,샘플 SP 회복약,Both,OneAlly
+sample_revival_bead,샘플 부활약,BattleOnly,OneDeadAlly
+sample_joy_gem,샘플 희열 보석,BattleOnly,OneEnemy
+sample_power_item,샘플 공격 강화제,BattleOnly,OneAlly
+sample_dekaja_item,샘플 강화 해제제,BattleOnly,OneEnemy
+sample_dekunda_item,샘플 약화 해제제,BattleOnly,OneAlly
+sample_mind_cure,샘플 정신 회복약,Both,OneAlly

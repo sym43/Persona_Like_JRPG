@@ -10,18 +10,23 @@ internal sealed class BattleActionExecutor
     private readonly Random random;
     private readonly bool bossBattle;
     private readonly IReadOnlyDictionary<string, BattleEffectData> battleEffects;
+    private readonly EnemyKnowledge enemyKnowledge;
 
     public BattleActionExecutor(Random random, bool bossBattle,
-        IReadOnlyDictionary<string, BattleEffectData> battleEffects)
+        IReadOnlyDictionary<string, BattleEffectData> battleEffects,
+        EnemyKnowledge enemyKnowledge)
     {
         this.random = random ?? throw new ArgumentNullException(nameof(random), "행동 난수 생성기가 필요합니다.");
         this.bossBattle = bossBattle;
         this.battleEffects = battleEffects ?? throw new ArgumentNullException(nameof(battleEffects), "전투 효과 목록이 필요합니다.");
+        this.enemyKnowledge = enemyKnowledge ?? throw new ArgumentNullException(nameof(enemyKnowledge), "적 상성 기록이 필요합니다.");
     }
 
     public BattleActionResult Execute(BattleAction action, BattleUnit actor,
         IReadOnlyList<BattleUnit> targets, SkillData skill = null,
-        IReadOnlyList<SkillEffectData> effects = null)
+        IReadOnlyList<SkillEffectData> skillEffects = null,
+        ItemData item = null, IReadOnlyList<ItemEffectData> itemEffects = null,
+        int? itemCountAfter = null)
     {
         if (action == null) throw new ArgumentNullException(nameof(action), "행동이 필요합니다.");
         if (actor == null) throw new ArgumentNullException(nameof(actor), "행동자가 필요합니다.");
@@ -36,7 +41,9 @@ internal sealed class BattleActionExecutor
             case BattleActionType.BasicAttack:
                 return UseBasicAttack(actor, targets);
             case BattleActionType.Skill:
-                return UseSkill(actor, targets, skill, effects);
+                return UseSkill(actor, targets, skill, skillEffects);
+            case BattleActionType.Item:
+                return UseItem(actor, targets, item, itemEffects, itemCountAfter);
             case BattleActionType.Guard:
                 actor.StartGuard();
                 return CreateResult(action.Type, actor.BattleId, null,
@@ -48,8 +55,7 @@ internal sealed class BattleActionExecutor
             case BattleActionType.Skip:
                 return CreateResult(action.Type, actor.BattleId, null,
                     Array.Empty<BattleImpactResult>(), Array.Empty<BattleEffectResult>());
-            //임시: 소지품·소지금 시스템을 연결하기 전에는 도취 행동 종류만 결과에 남김.
-            case BattleActionType.UseRandomItem:
+            //임시: 소지금 시스템을 연결하기 전에는 도취 행동 종류만 결과에 남김.
             case BattleActionType.DiscardMoney:
                 return CreateResult(action.Type, actor.BattleId, null,
                     Array.Empty<BattleImpactResult>(), Array.Empty<BattleEffectResult>());
@@ -115,6 +121,7 @@ internal sealed class BattleActionExecutor
 
         var impacts = new List<BattleImpactResult>();
         var effectResults = new List<BattleEffectResult>();
+        string analyzedUnitId = null;
         foreach (SkillEffectData effect in effects)
         {
             double charge = effect.Type == SkillEffectType.Damage
@@ -136,7 +143,8 @@ internal sealed class BattleActionExecutor
                         ResolveHealing(actor, target, effect, impacts);
                         break;
                     case SkillEffectType.ApplyEffect:
-                        ApplyEffect(actor, target, effect, impacts, effectResults);
+                        ApplyEffect(actor, target, effect.EffectId,
+                            effect.ApplyChance, effect.Order, impacts, effectResults);
                         break;
                     case SkillEffectType.RemoveBuffs:
                         AddRemovalResults(target, target.RemoveStatBuffs(), effectResults);
@@ -147,6 +155,10 @@ internal sealed class BattleActionExecutor
                     case SkillEffectType.CureMentalStates:
                         AddRemovalResults(target, target.RemoveMentalStates(), effectResults);
                         break;
+                    case SkillEffectType.Analyze:
+                        Analyze(target);
+                        analyzedUnitId = target.BattleId;
+                        break;
                     default:
                         throw new ArgumentOutOfRangeException(nameof(effect), "지원하지 않는 스킬 효과입니다.");
                 }
@@ -154,7 +166,64 @@ internal sealed class BattleActionExecutor
         }
 
         return CreateResult(BattleActionType.Skill, actor.BattleId,
-            skill.Id, impacts, effectResults);
+            skill.Id, impacts, effectResults,
+            analyzedUnitId: analyzedUnitId);
+    }
+
+    private BattleActionResult UseItem(BattleUnit actor,
+        IReadOnlyList<BattleUnit> targets, ItemData item,
+        IReadOnlyList<ItemEffectData> effects, int? itemCountAfter)
+    {
+        if (item == null || effects == null || effects.Count == 0 ||
+            !itemCountAfter.HasValue)
+            throw new InvalidOperationException("실행할 아이템 효과가 없습니다.");
+
+        var impacts = new List<BattleImpactResult>();
+        var effectResults = new List<BattleEffectResult>();
+        foreach (ItemEffectData effect in effects)
+        {
+            foreach (BattleUnit target in targets)
+            {
+                if (target.HasLeftBattle) continue;
+                bool revive = effect.Type == ItemEffectType.Revive;
+                if (target.IsDead != revive) continue;
+
+                switch (effect.Type)
+                {
+                    case ItemEffectType.Damage:
+                        ResolveItemAttack(actor, target, effect, impacts);
+                        break;
+                    case ItemEffectType.RecoverHp:
+                        RecoverHpWithItem(target, effect, impacts);
+                        break;
+                    case ItemEffectType.RecoverSp:
+                        RecoverSpWithItem(target, effect, impacts);
+                        break;
+                    case ItemEffectType.Revive:
+                        ReviveWithItem(target, effect, impacts);
+                        break;
+                    case ItemEffectType.ApplyEffect:
+                        ApplyEffect(actor, target, effect.EffectId,
+                            effect.ApplyChance, effect.Order, impacts, effectResults);
+                        break;
+                    case ItemEffectType.RemoveBuffs:
+                        AddRemovalResults(target, target.RemoveStatBuffs(), effectResults);
+                        break;
+                    case ItemEffectType.RemoveDebuffs:
+                        AddRemovalResults(target, target.RemoveStatDebuffs(), effectResults);
+                        break;
+                    case ItemEffectType.CureMentalStates:
+                        AddRemovalResults(target, target.RemoveMentalStates(), effectResults);
+                        break;
+                    default:
+                        throw new ArgumentOutOfRangeException(nameof(effect),
+                            "지원하지 않는 아이템 효과입니다.");
+                }
+            }
+        }
+
+        return CreateResult(BattleActionType.Item, actor.BattleId,
+            null, impacts, effectResults, item.Id, itemCountAfter);
     }
 
     private static void PayCost(BattleUnit actor, SkillData skill)
@@ -178,15 +247,16 @@ internal sealed class BattleActionExecutor
     }
 
     private void ApplyEffect(BattleUnit actor, BattleUnit target,
-        SkillEffectData skillEffect, IReadOnlyList<BattleImpactResult> impacts,
+        string effectId, int applyChance, int effectOrder,
+        IReadOnlyList<BattleImpactResult> impacts,
         ICollection<BattleEffectResult> effectResults)
     {
-        BattleEffectData data = battleEffects[skillEffect.EffectId];
+        BattleEffectData data = battleEffects[effectId];
         BattleUnit effectTarget = target;
         if (IsAttackLinkedState(data.Type))
         {
             BattleImpactResult impact = FindLatestImpact(
-                target.BattleId, skillEffect.Order, impacts);
+                target.BattleId, effectOrder, impacts);
             bool blockedByAttack = impact == null || !impact.Hit || impact.Damage == 0 ||
                 WasDownedByImpact(target.BattleId, impact.EffectOrder, impacts);
             if (blockedByAttack)
@@ -206,7 +276,7 @@ internal sealed class BattleActionExecutor
             if (!blocked)
             {
                 int chance = BattleAttackCalculator.CalculateMentalChance(
-                    actor, effectTarget, skillEffect.ApplyChance, data.Type);
+                    actor, effectTarget, applyChance, data.Type);
                 blocked = random.Next(100) >= chance;
             }
             if (blocked)
@@ -253,17 +323,20 @@ internal sealed class BattleActionExecutor
         int criticalRate, bool basicAttack, int effectOrder,
         double chargeMultiplier, ICollection<BattleImpactResult> impacts)
     {
-        ResistanceType resistance = target.Resistances.Get(damageType);
+        ResistanceType baseResistance = target.Resistances.Get(damageType);
+        ResistanceType resistance = baseResistance;
         BattleEffectType barrierType = BattleAttackCalculator.IsPhysical(damageType)
             ? BattleEffectType.PhysicalBarrier
             : BattleEffectType.EmotionBarrier;
-        if (target.ConsumeEffect(barrierType))
+        bool blockedByBarrier = target.ConsumeEffect(barrierType);
+        if (blockedByBarrier)
             resistance = ResistanceType.Reflect;
 
         if (resistance == ResistanceType.Immune)
         {
             impacts.Add(CreateImpact(effectOrder, 1, target, target,
                 true, false, resistance, resistance, 0, 0, false, false));
+            RevealResistance(target, damageType, blockedByBarrier);
             return;
         }
 
@@ -287,6 +360,7 @@ internal sealed class BattleActionExecutor
                 false, false, resistance, resistance, 0, 0, false, false));
             return;
         }
+        RevealResistance(target, damageType, blockedByBarrier);
 
         int adjustedCriticalRate = Math.Min(100, criticalRate +
             actor.GetEffectValue(BattleEffectType.CriticalUp) + GetCriticalTakenBonus(target));
@@ -365,6 +439,132 @@ internal sealed class BattleActionExecutor
             target.EndGuard();
     }
 
+    private void ResolveItemAttack(BattleUnit actor, BattleUnit target,
+        ItemEffectData effect, ICollection<BattleImpactResult> impacts)
+    {
+        DamageType damageType = effect.DamageType.Value;
+        ResistanceType baseResistance = target.Resistances.Get(damageType);
+        ResistanceType resistance = baseResistance;
+        BattleEffectType barrierType = BattleAttackCalculator.IsPhysical(damageType)
+            ? BattleEffectType.PhysicalBarrier
+            : BattleEffectType.EmotionBarrier;
+        bool blockedByBarrier = target.ConsumeEffect(barrierType);
+        if (blockedByBarrier)
+            resistance = ResistanceType.Reflect;
+
+        if (resistance == ResistanceType.Immune)
+        {
+            impacts.Add(CreateImpact(effect.Order, 1, target, target,
+                true, false, resistance, resistance, 0, 0, false, false));
+            RevealResistance(target, damageType, blockedByBarrier);
+            return;
+        }
+
+        bool cannotEvade = target.IsDown || target.HasEffect(BattleEffectType.Lethargy) ||
+            target.HasEffect(BattleEffectType.Thrill) ||
+            target.HasEffect(BattleEffectType.Intimidation);
+        bool hit = effect.Accuracy == 100 || cannotEvade ||
+            resistance == ResistanceType.Reflect || resistance == ResistanceType.Drain;
+        if (!hit)
+        {
+            int chance = BattleAttackCalculator.CalculateBaseHitChance(
+                actor, target, effect.Accuracy, target.ShoeEvasion);
+            chance = (int)Math.Truncate(chance * GetAccuracyMultiplier(actor) *
+                GetEvasionMultiplier(target));
+            chance = Math.Max(50, Math.Min(99, chance));
+            hit = random.Next(100) < chance;
+        }
+        if (!hit)
+        {
+            impacts.Add(CreateImpact(effect.Order, 1, target, target,
+                false, false, resistance, resistance, 0, 0, false, false));
+            return;
+        }
+        RevealResistance(target, damageType, blockedByBarrier);
+
+        bool reflected = resistance == ResistanceType.Reflect;
+        bool drained = resistance == ResistanceType.Drain;
+        ResistanceType appliedResistance = reflected
+            ? actor.Resistances.Get(damageType) : resistance;
+        BattleUnit receiver = reflected ? actor : target;
+
+        if (reflected && (appliedResistance == ResistanceType.Immune ||
+                          appliedResistance == ResistanceType.Reflect))
+        {
+            impacts.Add(CreateImpact(effect.Order, 1, target, actor,
+                true, false, resistance, appliedResistance,
+                0, 0, false, false));
+            return;
+        }
+
+        bool healing = drained || (reflected && appliedResistance == ResistanceType.Drain);
+        bool guarded = !reflected && !drained && target.IsGuarding;
+        //고정 피해는 약점·내성 피해 배율과 공격자 능력치를 적용하지 않음.
+        //약점 다운과 무효·반사·흡수 판정은 위에서 그대로 처리함.
+        double modifier = guarded ? 0.4d : 1d;
+        int amount = BattleAttackCalculator.CalculateDamage(effect.Amount, modifier, 100);
+        int hpBefore = receiver.Hp;
+
+        if (healing)
+        {
+            receiver.RecoverHp(amount);
+            impacts.Add(CreateImpact(effect.Order, 1, target, receiver,
+                true, false, resistance, appliedResistance, 0,
+                receiver.Hp - hpBefore, false, false));
+            return;
+        }
+
+        bool wasDown = receiver.IsDown;
+        receiver.TakeDamage(amount);
+        bool downed = !receiver.IsDead && !wasDown && !guarded &&
+            appliedResistance == ResistanceType.Weak;
+        if (downed) receiver.KnockDown();
+        impacts.Add(CreateImpact(effect.Order, 1, target, receiver,
+            true, false, resistance, appliedResistance, amount,
+            0, downed, guarded));
+
+        if (guarded && receiver == target && target.Hp < target.MaxHp)
+            target.EndGuard();
+    }
+
+    private static void RecoverHpWithItem(BattleUnit target,
+        ItemEffectData effect, ICollection<BattleImpactResult> impacts)
+    {
+        int amount = CalculateItemAmount(effect, target.MaxHp);
+        int hpBefore = target.Hp;
+        target.RecoverHp(amount);
+        impacts.Add(CreateImpact(effect.Order, 1, target, target,
+            true, false, null, null, 0, target.Hp - hpBefore, false, false));
+    }
+
+    private static void RecoverSpWithItem(BattleUnit target,
+        ItemEffectData effect, ICollection<BattleImpactResult> impacts)
+    {
+        int amount = CalculateItemAmount(effect, target.MaxSp);
+        int spBefore = target.Sp;
+        target.RecoverSp(amount);
+        impacts.Add(CreateImpact(effect.Order, 1, target, target,
+            true, false, null, null, 0, 0, false, false,
+            spRecovery: target.Sp - spBefore));
+    }
+
+    private static void ReviveWithItem(BattleUnit target,
+        ItemEffectData effect, ICollection<BattleImpactResult> impacts)
+    {
+        int amount = CalculateItemAmount(effect, target.MaxHp);
+        target.Revive(amount);
+        impacts.Add(CreateImpact(effect.Order, 1, target, target,
+            true, false, null, null, 0, target.Hp, false, false,
+            revived: true));
+    }
+
+    private static int CalculateItemAmount(ItemEffectData effect, int maximum)
+    {
+        if (effect.AmountType == ItemAmountType.Fixed)
+            return effect.Amount;
+        return Math.Max(1, (int)Math.Truncate((long)maximum * effect.Amount / 100d));
+    }
+
     private void ResolveHealing(BattleUnit actor, BattleUnit target,
         SkillEffectData effect, ICollection<BattleImpactResult> impacts)
     {
@@ -440,6 +640,22 @@ internal sealed class BattleActionExecutor
         return 0;
     }
 
+    //적의 실제 상성을 공격으로 확인했을 때 기록함
+    private void RevealResistance(BattleUnit target, DamageType damageType,
+        bool blockedByBarrier)
+    {
+        if (!target.IsEnemy || blockedByBarrier) return;
+        enemyKnowledge.Reveal(target.Data.Id, damageType);
+    }
+
+    //선택한 적의 모든 속성 상성을 공개함
+    private void Analyze(BattleUnit target)
+    {
+        if (!target.IsEnemy)
+            throw new InvalidOperationException("적만 분석할 수 있습니다.");
+        enemyKnowledge.RevealAll(target.Data.Id);
+    }
+
     private static void AddRemovalResults(BattleUnit target,
         IReadOnlyList<string> removedIds, ICollection<BattleEffectResult> effectResults)
     {
@@ -451,19 +667,23 @@ internal sealed class BattleActionExecutor
     private static BattleImpactResult CreateImpact(int effectOrder, int hitNumber,
         BattleUnit target, BattleUnit receiver, bool hit, bool critical,
         ResistanceType? resistance, ResistanceType? appliedResistance,
-        int damage, int healing, bool downed, bool guarded)
+        int damage, int healing, bool downed, bool guarded,
+        int spRecovery = 0, bool revived = false)
     {
         return new BattleImpactResult(effectOrder, hitNumber,
             target.BattleId, receiver.BattleId, hit, critical,
-            resistance, appliedResistance, damage, healing,
-            downed, guarded, receiver.Hp);
+            resistance, appliedResistance, damage, healing, spRecovery,
+            revived, downed, guarded, receiver.Hp, receiver.Sp);
     }
 
     private static BattleActionResult CreateResult(BattleActionType type,
         string unitId, string skillId, IReadOnlyList<BattleImpactResult> impacts,
-        IReadOnlyList<BattleEffectResult> effectResults)
+        IReadOnlyList<BattleEffectResult> effectResults,
+        string itemId = null, int? itemCountAfter = null,
+        string analyzedUnitId = null)
     {
-        return new BattleActionResult(type, unitId, skillId,
+        return new BattleActionResult(type, unitId, skillId, itemId,
+            itemCountAfter, analyzedUnitId,
             FindOneMoreUnitId(unitId, impacts), impacts, effectResults);
     }
 

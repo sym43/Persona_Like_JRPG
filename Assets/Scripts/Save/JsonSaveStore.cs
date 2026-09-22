@@ -10,7 +10,7 @@ using UnityEngine;
 public sealed class JsonSaveStore
 {
     //현재 저장 구조 버전
-    public const int CurrentSaveVersion = 1;
+    public const int CurrentSaveVersion = 2;
 
     private readonly string folderPath;
 
@@ -84,6 +84,8 @@ public sealed class JsonSaveStore
                 throw new FormatException("세이브 파일이 비어 있습니다.");
 
             var saveData = JsonUtility.FromJson<GameSaveData>(json);
+            if (saveData != null && saveData.enemyKnowledge == null)
+                saveData.enemyKnowledge = Array.Empty<EnemyKnowledgeSaveData>();
             SaveDataChecks.Check(saveData, CurrentSaveVersion);
             return saveData;
         }
