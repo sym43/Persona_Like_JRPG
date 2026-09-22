@@ -19,7 +19,9 @@ public sealed class SkillEffectDataLoader
         "power",
         "accuracy",
         "hitCount",
-        "criticalRate"
+        "criticalRate",
+        "effectId",
+        "applyChance"
     };
 
     private IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> loadedEffects;
@@ -66,7 +68,9 @@ public sealed class SkillEffectDataLoader
                     CsvTableReader.ReadNumber(row, 4, ColumnNames[4], sourceName, rowNumber),
                     CsvTableReader.ReadNumber(row, 5, ColumnNames[5], sourceName, rowNumber),
                     CsvTableReader.ReadNumber(row, 6, ColumnNames[6], sourceName, rowNumber),
-                    CsvTableReader.ReadNumber(row, 7, ColumnNames[7], sourceName, rowNumber));
+                    CsvTableReader.ReadNumber(row, 7, ColumnNames[7], sourceName, rowNumber),
+                    string.IsNullOrWhiteSpace(row[8]) ? null : row[8].Trim(),
+                    CsvTableReader.ReadNumber(row, 9, ColumnNames[9], sourceName, rowNumber));
 
                 if (!grouped.TryGetValue(effect.SkillId, out List<SkillEffectData> effects))
                 {

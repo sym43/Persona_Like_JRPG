@@ -6,29 +6,22 @@ using System;
 /// </summary>
 public sealed class SkillEffectData
 {
-    //효과를 가진 스킬 ID
     public string SkillId { get; }
-    //스킬 안에서 실행될 순서
     public int Order { get; }
-    //효과 종류
     public SkillEffectType Type { get; }
-    //피해 속성. 피해 효과가 아니면 없음
     public DamageType? DamageType { get; }
-    //피해 또는 회복 위력
     public int Power { get; }
-    //명중률
     public int Accuracy { get; }
-    //타격 수
     public int HitCount { get; }
-    //기본 치명타율
     public int CriticalRate { get; }
+    public string EffectId { get; }
+    public int ApplyChance { get; }
 
     //스킬 효과 데이터를 만듦
     public SkillEffectData(string skillId, int order, SkillEffectType type,
-        DamageType? damageType, int power, int accuracy, int hitCount, int criticalRate)
+        DamageType? damageType, int power, int accuracy, int hitCount,
+        int criticalRate, string effectId = null, int applyChance = 100)
     {
-        #region 입력값 검사
-
         BattleDataChecks.CheckText(skillId);
         if (order < 0)
             throw new ArgumentOutOfRangeException(nameof(order), "효과 순서는 0 이상이어야 합니다.");
@@ -44,16 +37,25 @@ public sealed class SkillEffectData
             throw new ArgumentOutOfRangeException(nameof(hitCount), "타격 수는 1 이상이어야 합니다.");
         if (criticalRate < 0 || criticalRate > 100)
             throw new ArgumentOutOfRangeException(nameof(criticalRate), "치명타율은 0 이상 100 이하여야 합니다.");
-        if (type == SkillEffectType.Damage && !damageType.HasValue)
-            throw new ArgumentException("피해 효과에는 피해 속성이 필요합니다.", nameof(damageType));
-        if (type == SkillEffectType.Heal && damageType.HasValue)
-            throw new ArgumentException("회복 효과에는 피해 속성을 넣을 수 없습니다.", nameof(damageType));
-        if (type == SkillEffectType.Heal && criticalRate != 0)
-            throw new ArgumentException("회복 효과의 치명타율은 0이어야 합니다.", nameof(criticalRate));
-        if (type == SkillEffectType.Heal && (accuracy != 100 || hitCount != 1))
-            throw new ArgumentException("회복 효과는 명중률 100, 타격 수 1이어야 합니다.");
+        if (applyChance < 0 || applyChance > 100)
+            throw new ArgumentOutOfRangeException(nameof(applyChance), "효과 부여율은 0 이상 100 이하여야 합니다.");
 
-        #endregion
+        bool damage = type == SkillEffectType.Damage;
+        bool heal = type == SkillEffectType.Heal;
+        bool apply = type == SkillEffectType.ApplyEffect;
+        if (damage && !damageType.HasValue)
+            throw new ArgumentException("피해 효과에는 피해 속성이 필요합니다.", nameof(damageType));
+        if (!damage && damageType.HasValue)
+            throw new ArgumentException("피해 효과가 아니면 피해 속성을 넣을 수 없습니다.", nameof(damageType));
+        if (heal && criticalRate != 0)
+            throw new ArgumentException("회복 효과의 치명타율은 0이어야 합니다.", nameof(criticalRate));
+        if (!damage && !heal && power != 0)
+            throw new ArgumentException("피해·회복 외 효과의 위력은 0이어야 합니다.", nameof(power));
+        if (!damage && !heal && (accuracy != 100 || hitCount != 1 || criticalRate != 0))
+            throw new ArgumentException("전투 효과는 명중률 100, 타격 수 1, 치명타율 0이어야 합니다.");
+        if (apply) BattleDataChecks.CheckText(effectId);
+        else if (effectId != null)
+            throw new ArgumentException("효과 적용이 아니면 효과 ID를 넣을 수 없습니다.", nameof(effectId));
 
         SkillId = skillId;
         Order = order;
@@ -63,5 +65,7 @@ public sealed class SkillEffectData
         Accuracy = accuracy;
         HitCount = hitCount;
         CriticalRate = criticalRate;
+        EffectId = effectId;
+        ApplyChance = applyChance;
     }
 }

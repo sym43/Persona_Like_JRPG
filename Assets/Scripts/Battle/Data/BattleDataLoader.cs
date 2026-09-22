@@ -8,34 +8,34 @@ public sealed class BattleDataLoader
 {
     private readonly SkillDataLoader skillLoader = new SkillDataLoader();
     private readonly SkillEffectDataLoader skillEffectLoader = new SkillEffectDataLoader();
+    private readonly BattleEffectDataLoader battleEffectLoader = new BattleEffectDataLoader();
     private readonly AnimaSkillDataLoader animaSkillLoader = new AnimaSkillDataLoader();
     private readonly AnimaDataLoader animaLoader = new AnimaDataLoader();
     private readonly BattleUnitDataLoader battleUnitLoader = new BattleUnitDataLoader();
 
     private BattleDataSet loadedData;
 
-    //전투 CSV를 한 번 읽고 연결을 검사해서 반환함
     public BattleDataSet Load()
     {
-        if (loadedData != null)
-            return loadedData;
+        if (loadedData != null) return loadedData;
 
         var skills = skillLoader.Load();
         var skillEffects = skillEffectLoader.Load();
+        var battleEffects = battleEffectLoader.Load();
         var learnableSkills = animaSkillLoader.Load();
         var animas = animaLoader.Load(learnableSkills);
         var battleUnits = battleUnitLoader.Load();
 
-        CheckReferences(animas, skills, skillEffects, learnableSkills, battleUnits);
-        loadedData = new BattleDataSet(animas, skills, skillEffects, battleUnits);
+        CheckReferences(animas, skills, skillEffects, battleEffects, learnableSkills, battleUnits);
+        loadedData = new BattleDataSet(animas, skills, skillEffects, battleEffects, battleUnits);
         return loadedData;
     }
 
-    //표 사이의 ID 참조를 검사함
     private static void CheckReferences(
         IReadOnlyDictionary<string, AnimaData> animas,
         IReadOnlyDictionary<string, SkillData> skills,
         IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
+        IReadOnlyDictionary<string, BattleEffectData> battleEffects,
         IReadOnlyDictionary<string, IReadOnlyList<SkillLearnData>> learnableSkills,
         IReadOnlyDictionary<string, BattleUnitData> battleUnits)
     {
@@ -45,6 +45,13 @@ public sealed class BattleDataLoader
                 throw new FormatException($"skill_effects.csv에 없는 스킬 ID가 있습니다: {pair.Key}");
             if (skill.UseType != SkillUseType.Active)
                 throw new FormatException($"패시브 스킬에는 실행 효과를 넣을 수 없습니다: {pair.Key}");
+
+            foreach (SkillEffectData effect in pair.Value)
+            {
+                if (effect.Type == SkillEffectType.ApplyEffect &&
+                    !battleEffects.ContainsKey(effect.EffectId))
+                    throw new FormatException($"skill_effects.csv에 없는 전투 효과 ID가 있습니다: {effect.EffectId}");
+            }
         }
 
         foreach (var skill in skills.Values)
@@ -57,7 +64,6 @@ public sealed class BattleDataLoader
         {
             if (!animas.ContainsKey(animaSkills.Key))
                 throw new FormatException($"anima_skills.csv에 없는 아니마 ID가 있습니다: {animaSkills.Key}");
-
             foreach (var learnableSkill in animaSkills.Value)
             {
                 if (!skills.ContainsKey(learnableSkill.SkillId))
