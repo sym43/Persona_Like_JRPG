@@ -13,16 +13,22 @@ public sealed class BattleTestStarter : MonoBehaviour
 
     private const string PlayerId = "test_player";
     private const string EnemyId = "test_enemy";
-    private const string SkillId = "test_slash";
-    private const string ItemId = "test_fire_item";
+    private const string FirstAnimaDataId = "test_anima_joy";
+    private const string SecondAnimaDataId = "test_anima_anger";
+    private const string SkillId = "sample_fire";
+    private const string ItemId = "sample_joy_gem";
     private const string FirstAnimaInstanceId = "test_anima_1";
     private const string SecondAnimaInstanceId = "test_anima_2";
 
     //임시: 아이템 행동을 한 번만 확인함.
     private bool itemUsed;
+    //임시: 장착 무기의 일반 공격을 한 번만 확인함.
+    private bool basicAttackUsed;
+    //임시: Awake에서 CSV 데이터로 구성한 전투.
+    private BattleSession testBattle;
 
-    //임시: 플레이 모드에서 테스트 전투를 자동으로 시작함.
-    private void Start()
+    //임시: 씬에 들어오면 CSV 데이터로 테스트 전투를 구성함.
+    private void Awake()
     {
         if (battleController == null)
         {
@@ -34,7 +40,16 @@ public sealed class BattleTestStarter : MonoBehaviour
         battleController.ActionResolved += LogActionResult;
         battleController.AnimaChanged += FinishAnimaChange;
         battleController.BattleEnded += LogBattleEnd;
-        battleController.StartBattle(CreateTestBattle());
+        testBattle = CreateTestBattle();
+    }
+
+    //임시: 다른 컴포넌트의 이벤트 연결이 끝난 뒤 테스트 전투를 시작함.
+    private void Start()
+    {
+        if (testBattle == null)
+            return;
+
+        battleController.StartBattle(testBattle);
         Debug.Log("전투 테스트를 시작했습니다.");
     }
 
@@ -62,6 +77,14 @@ public sealed class BattleTestStarter : MonoBehaviour
             itemUsed = true;
             battleController.SubmitPlayerAction(new BattleAction(
                 unit.BattleId, BattleActionType.Item, EnemyId, itemId: ItemId));
+            return;
+        }
+
+        if (!basicAttackUsed)
+        {
+            basicAttackUsed = true;
+            battleController.SubmitPlayerAction(new BattleAction(
+                unit.BattleId, BattleActionType.BasicAttack, EnemyId));
             return;
         }
 
@@ -99,15 +122,17 @@ public sealed class BattleTestStarter : MonoBehaviour
         Debug.Log($"전투 테스트 종료: {state}");
     }
 
-    //임시: CSV와 저장 데이터 연결 전 사용할 전투를 만듦.
+    //임시: CSV 원본과 기본 장비를 조립해 테스트 전투를 만듦.
     private static BattleSession CreateTestBattle()
     {
-        Anima firstAnima = CreateAnima(FirstAnimaInstanceId,
-            "test_anima_data_1", new BattleStats(20, 15, 15, 10, 10));
-        Anima secondAnima = CreateAnima(SecondAnimaInstanceId,
-            "test_anima_data_2", new BattleStats(20, 20, 12, 18, 12));
-        BattleUnit player = CreatePlayer(firstAnima);
-        BattleUnit enemy = CreateEnemy();
+        BattleDataSet data = new BattleDataLoader().Load();
+        var factory = new BattleUnitFactory(data);
+        Anima firstAnima = CreateAnima(data, FirstAnimaInstanceId,
+            FirstAnimaDataId);
+        Anima secondAnima = CreateAnima(data, SecondAnimaInstanceId,
+            SecondAnimaDataId);
+        BattleUnit player = CreatePlayer(data, factory, firstAnima);
+        BattleUnit enemy = CreateEnemy(data, factory);
         var units = new[] { player, enemy };
         var order = new BattleTurnOrder(new[]
         {
@@ -115,113 +140,57 @@ public sealed class BattleTestStarter : MonoBehaviour
                 player.StartAgility, player.TurnTieOrder),
             new BattleTurnEntry(enemy.BattleId, BattleSide.Enemy,
                 enemy.StartAgility, enemy.TurnTieOrder)
-        }, BattleEncounterType.Ambushed, new System.Random(1));
+        }, BattleEncounterType.Normal, new System.Random(1));
 
-        var skill = new SkillData(SkillId, "테스트 참격",
-            SkillUseType.Active, SkillCostType.Sp, 3, BattleTargetType.OneEnemy);
-        var skills = new Dictionary<string, SkillData>
-        {
-            { skill.Id, skill }
-        };
-        var effects = new Dictionary<string, IReadOnlyList<SkillEffectData>>
-        {
-            {
-                skill.Id,
-                new[]
-                {
-                    new SkillEffectData(skill.Id, 0, SkillEffectType.Damage,
-                        DamageType.Slash, 30, 100, 1, 0)
-                }
-            }
-        };
-
-        var battleEffects = new Dictionary<string, BattleEffectData>();
-        var item = new ItemData(ItemId, "테스트 화염 아이템",
-            ItemUseType.BattleOnly, BattleTargetType.OneEnemy);
-        var items = new Dictionary<string, ItemData>
-        {
-            { item.Id, item }
-        };
-        var itemEffects = new Dictionary<string, IReadOnlyList<ItemEffectData>>
-        {
-            {
-                item.Id,
-                new[]
-                {
-                    new ItemEffectData(item.Id, 0, ItemEffectType.Damage,
-                        DamageType.Anger, 10, ItemAmountType.Fixed, 100)
-                }
-            }
-        };
         var inventory = new ItemInventory(new Dictionary<string, int>
         {
-            { item.Id, 1 }
+            { ItemId, 1 },
+            { "sample_medicine", 2 }
         });
-        return new BattleSession(order, units, skills, effects, battleEffects,
-            items, itemEffects, inventory, new[] { firstAnima, secondAnima },
-            new System.Random(2), new EnemyKnowledge());
+        return new BattleSession(order, units, data.Skills, data.SkillEffects,
+            data.BattleEffects, data.Items, data.ItemEffects, inventory,
+            new[] { firstAnima, secondAnima }, new System.Random(2),
+            new EnemyKnowledge());
     }
 
-    //임시: 테스트용 주인공을 만듦.
-    private static BattleUnit CreatePlayer(Anima anima)
+    //임시: 테스트용 주인공을 CSV 원본과 기본 장비로 만듦.
+    private static BattleUnit CreatePlayer(BattleDataSet data,
+        BattleUnitFactory factory, Anima anima)
     {
-        var data = new BattleUnitData(PlayerId, "테스트 주인공",
-            UnitRole.MainCharacter, 10, 120, 30, null);
-        return new BattleUnit(PlayerId, data, "test_character",
-            anima.InstanceId, anima.Data.Id, 0, 10,
-            120, 30, 120, 30, anima.Stats,
-            anima.Data.Resistances, CreateNormalMentalResistance(),
-            anima.SkillIds, EmptyEquipment(),
-            new BasicAttackData(30, 100, DamageType.Slash), 10, 0);
+        BattleUnitData unit = data.BattleUnits[PlayerId];
+        return factory.CreateAlly(PlayerId, PlayerId, "test_character",
+            anima, factory.GetDefaultEquipment(PlayerId), 0,
+            unit.BaseLevel, unit.BaseMaxHp, unit.BaseMaxSp,
+            CreateNormalMentalResistance());
     }
 
-    //임시: 테스트용 아니마를 만듦.
-    private static Anima CreateAnima(string instanceId, string dataId,
-        BattleStats stats)
+    //임시: 기본 레벨에 배운 스킬로 테스트용 아니마를 만듦.
+    private static Anima CreateAnima(BattleDataSet data,
+        string instanceId, string dataId)
     {
-        var data = new AnimaData(dataId, dataId, 1, stats,
-            CreateNormalResistances(), Array.Empty<SkillLearnData>());
-        return new Anima(instanceId, data, 1, 0, stats, new[] { SkillId });
-    }
-
-    //임시: 테스트용 적을 만듦.
-    private static BattleUnit CreateEnemy()
-    {
-        var data = new BattleUnitData(EnemyId, "테스트 적",
-            UnitRole.Enemy, 10, 50, 0, null);
-        return new BattleUnit(EnemyId, data, null, null, null,
-            0, 10, 50, 0, 50, 0,
-            new BattleStats(8, 8, 10, 20, 8), CreateEnemyResistances(),
-            CreateNormalMentalResistance(), Array.Empty<string>(), EmptyEquipment(),
-            new BasicAttackData(10, 100, DamageType.Strike), 5, 0);
-    }
-
-    //임시: 모든 속성을 보통 상성으로 채움.
-    private static ResistanceTable CreateNormalResistances()
-    {
-        var entries = new List<KeyValuePair<DamageType, ResistanceType>>();
-        foreach (DamageType damageType in Enum.GetValues(typeof(DamageType)))
+        AnimaData animaData = data.Animas[dataId];
+        var skillIds = new List<string>();
+        foreach (SkillLearnData skill in animaData.LearnableSkills)
         {
-            entries.Add(new KeyValuePair<DamageType, ResistanceType>(
-                damageType, ResistanceType.Normal));
+            if (skill.Level <= animaData.BaseLevel)
+                skillIds.Add(skill.SkillId);
         }
-
-        return new ResistanceTable(entries);
+        return new Anima(instanceId, animaData, animaData.BaseLevel,
+            0, animaData.BaseStats, skillIds);
     }
 
-    //임시: 화염 아이템의 약점·원모어 판정을 확인할 적 상성을 만듦.
-    private static ResistanceTable CreateEnemyResistances()
+    //임시: 적의 고정 아니마와 기본 장비로 테스트용 적을 만듦.
+    private static BattleUnit CreateEnemy(BattleDataSet data,
+        BattleUnitFactory factory)
     {
-        var entries = new List<KeyValuePair<DamageType, ResistanceType>>();
-        foreach (DamageType damageType in Enum.GetValues(typeof(DamageType)))
-        {
-            ResistanceType resistance = damageType == DamageType.Anger
-                ? ResistanceType.Weak
-                : ResistanceType.Normal;
-            entries.Add(new KeyValuePair<DamageType, ResistanceType>(
-                damageType, resistance));
-        }
-        return new ResistanceTable(entries);
+        BattleUnitData unit = data.BattleUnits[EnemyId];
+        Anima enemyAnima = CreateAnima(data, "test_enemy_anima_instance",
+            unit.FixedAnimaId);
+        return factory.CreateEnemy(EnemyId, EnemyId,
+            factory.GetDefaultEquipment(EnemyId), 0,
+            unit.BaseMaxHp, unit.BaseMaxSp, enemyAnima.Stats,
+            enemyAnima.Data.Resistances, CreateNormalMentalResistance(),
+            enemyAnima.SkillIds, true);
     }
 
     //임시: 모든 정신 상태를 보통 저항으로 채움.
@@ -237,9 +206,4 @@ public sealed class BattleTestStarter : MonoBehaviour
         return new MentalResistanceTable(entries);
     }
 
-    //임시: 장비 데이터 연결 전 사용할 빈 장비 슬롯을 만듦.
-    private static IReadOnlyList<string> EmptyEquipment()
-    {
-        return new string[4];
-    }
 }

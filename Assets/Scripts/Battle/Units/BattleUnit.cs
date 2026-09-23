@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 /// <summary>
 /// 전투 중인 아군 또는 적 개체. <br/>
@@ -49,8 +50,8 @@ public sealed class BattleUnit
     public MentalResistanceTable MentalResistance { get; }
     //현재 스킬 ID 목록
     public IReadOnlyList<string> SkillIds { get; private set; }
-    //현재 장비 ID 목록
-    public IReadOnlyList<string> EquipmentIds { get; }
+    //현재 장착한 무기, 방어구, 신발, 액세서리
+    public EquipmentSet Equipment { get; }
     //장착 무기 또는 적 데이터에서 확정한 일반 공격 수치. 기본 공격이 없는 적은 비어 있음.
     public BasicAttackData BasicAttack { get; }
     //방어구 방어력
@@ -61,6 +62,8 @@ public sealed class BattleUnit
     public IReadOnlyList<BattleUnitEffectState> Effects { get; }
 
     private readonly List<BattleUnitEffectState> effectStates = new List<BattleUnitEffectState>();
+    private readonly EquipmentStatBonus equipmentStatBonus;
+    private readonly IReadOnlyDictionary<DamageType, ResistanceType> equipmentResistanceChanges;
 
     //전투원을 만듦
     public BattleUnit(string battleId, BattleUnitData unitData,
@@ -69,8 +72,10 @@ public sealed class BattleUnit
         int maxHp, int maxSp, int hp, int sp, BattleStats stats,
         ResistanceTable resistances, MentalResistanceTable mentalResistance,
         IEnumerable<string> skillIds,
-        IReadOnlyList<string> equipmentIds, BasicAttackData basicAttack,
-        int armor, int shoeEvasion)
+        EquipmentSet equipment, BasicAttackData basicAttack,
+        int armor, int shoeEvasion,
+        EquipmentStatBonus statBonus = null,
+        IReadOnlyDictionary<DamageType, ResistanceType> resistanceChanges = null)
     {
         #region 입력값 검사
 
@@ -83,6 +88,7 @@ public sealed class BattleUnit
         if (stats == null) throw new ArgumentNullException(nameof(stats), "전투 능력치가 필요합니다.");
         if (resistances == null) throw new ArgumentNullException(nameof(resistances), "저항 표가 필요합니다.");
         if (mentalResistance == null) throw new ArgumentNullException(nameof(mentalResistance), "상태 저항 표가 필요합니다.");
+        if (equipment == null) throw new ArgumentNullException(nameof(equipment), "장착 상태가 필요합니다.");
         if (basicAttack == null && unitData.Role != UnitRole.Enemy)
             throw new ArgumentNullException(nameof(basicAttack), "아군의 일반 공격 수치가 필요합니다.");
         if (armor < 0) throw new ArgumentOutOfRangeException(nameof(armor), "방어구 방어력은 0 이상이어야 합니다.");
@@ -110,12 +116,14 @@ public sealed class BattleUnit
         Level = level;
         MaxHp = maxHp;
         MaxSp = maxSp;
-        Stats = stats;
-        StartAgility = stats.Agility;
-        Resistances = resistances;
+        equipmentStatBonus = statBonus ?? new EquipmentStatBonus(0, 0, 0, 0, 0);
+        equipmentResistanceChanges = CopyResistanceChanges(resistanceChanges);
+        Stats = equipmentStatBonus.Apply(stats);
+        StartAgility = Stats.Agility;
+        Resistances = ApplyResistanceChanges(resistances, equipmentResistanceChanges);
         MentalResistance = mentalResistance;
         SkillIds = BattleDataChecks.CheckAndCopySkillIds(skillIds, isEnemy ? int.MaxValue : 8);
-        EquipmentIds = BattleDataChecks.CheckAndCopyEquipmentIds(equipmentIds);
+        Equipment = equipment;
         BasicAttack = basicAttack;
         Armor = armor;
         ShoeEvasion = shoeEvasion;
@@ -133,8 +141,9 @@ public sealed class BattleUnit
 
         AnimaInstanceId = anima.InstanceId;
         AnimaDataId = anima.Data.Id;
-        Stats = anima.Stats;
-        Resistances = anima.Data.Resistances;
+        Stats = equipmentStatBonus.Apply(anima.Stats);
+        Resistances = ApplyResistanceChanges(anima.Data.Resistances,
+            equipmentResistanceChanges);
         SkillIds = BattleDataChecks.CheckAndCopySkillIds(anima.SkillIds, 8);
     }
 
@@ -425,6 +434,38 @@ public sealed class BattleUnit
             case BattleEffectType.AccuracyEvasionDown: return BattleEffectType.AccuracyEvasionUp;
             default: return null;
         }
+    }
+
+    //장비의 속성 저항 변경값을 검사하고 복사함
+    private static IReadOnlyDictionary<DamageType, ResistanceType> CopyResistanceChanges(
+        IReadOnlyDictionary<DamageType, ResistanceType> source)
+    {
+        var copy = new Dictionary<DamageType, ResistanceType>();
+        if (source != null)
+        {
+            foreach (KeyValuePair<DamageType, ResistanceType> entry in source)
+            {
+                if (!Enum.IsDefined(typeof(DamageType), entry.Key) ||
+                    !Enum.IsDefined(typeof(ResistanceType), entry.Value))
+                    throw new ArgumentException("장비 속성 저항 변경값이 잘못됐습니다.", nameof(source));
+                copy.Add(entry.Key, entry.Value);
+            }
+        }
+        return new ReadOnlyDictionary<DamageType, ResistanceType>(copy);
+    }
+
+    //아니마 상성에 장비의 속성 저항 변경을 적용함
+    private static ResistanceTable ApplyResistanceChanges(ResistanceTable baseTable,
+        IReadOnlyDictionary<DamageType, ResistanceType> changes)
+    {
+        var entries = new List<KeyValuePair<DamageType, ResistanceType>>();
+        foreach (KeyValuePair<DamageType, ResistanceType> entry in baseTable.Entries)
+        {
+            ResistanceType value = changes.TryGetValue(entry.Key,
+                out ResistanceType changed) ? changed : entry.Value;
+            entries.Add(new KeyValuePair<DamageType, ResistanceType>(entry.Key, value));
+        }
+        return new ResistanceTable(entries);
     }
 
     //전투 시작 상태를 초기화함

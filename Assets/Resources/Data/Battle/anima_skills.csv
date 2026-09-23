@@ -1,1 +1,7 @@
 ﻿animaId,skillId,learnLevel
+test_anima_joy,sample_slash,1
+test_anima_joy,sample_heal,1
+test_anima_anger,sample_fire,1
+test_anima_anger,sample_slash,1
+test_enemy_anima,sample_slash,1
+test_enemy_anima,sample_fire,1

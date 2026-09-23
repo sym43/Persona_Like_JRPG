@@ -10,7 +10,7 @@ using UnityEngine;
 public sealed class JsonSaveStore
 {
     //현재 저장 구조 버전
-    public const int CurrentSaveVersion = 2;
+    public const int CurrentSaveVersion = 3;
 
     private readonly string folderPath;
 
@@ -86,6 +86,11 @@ public sealed class JsonSaveStore
             var saveData = JsonUtility.FromJson<GameSaveData>(json);
             if (saveData != null && saveData.enemyKnowledge == null)
                 saveData.enemyKnowledge = Array.Empty<EnemyKnowledgeSaveData>();
+            if (saveData != null && saveData.saveVersion == 2)
+            {
+                saveData.equipment = Array.Empty<EquipmentSaveData>();
+                saveData.saveVersion = CurrentSaveVersion;
+            }
             SaveDataChecks.Check(saveData, CurrentSaveVersion);
             return saveData;
         }

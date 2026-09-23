@@ -104,11 +104,18 @@ internal sealed class BattleActionExecutor
             throw new InvalidOperationException("이 전투원은 기본 공격을 사용할 수 없습니다.");
 
         var impacts = new List<BattleImpactResult>();
+        var effectResults = new List<BattleEffectResult>();
         double charge = TakeChargeMultiplier(actor, attack.DamageType);
         ResolveAttack(actor, targets[0], attack.DamageType, attack.Power,
             attack.Accuracy, 1, 3, true, 0, charge, impacts);
+        for (int i = 0; i < attack.Effects.Count; i++)
+        {
+            BattleEffectChance effect = attack.Effects[i];
+            ApplyEffect(actor, targets[0], effect.EffectId,
+                effect.ApplyChance, i + 1, impacts, effectResults, true);
+        }
         return CreateResult(BattleActionType.BasicAttack, actor.BattleId,
-            null, impacts, Array.Empty<BattleEffectResult>());
+            null, impacts, effectResults);
     }
 
     private BattleActionResult UseSkill(BattleUnit actor,
@@ -249,11 +256,12 @@ internal sealed class BattleActionExecutor
     private void ApplyEffect(BattleUnit actor, BattleUnit target,
         string effectId, int applyChance, int effectOrder,
         IReadOnlyList<BattleImpactResult> impacts,
-        ICollection<BattleEffectResult> effectResults)
+        ICollection<BattleEffectResult> effectResults,
+        bool forceAttackLink = false)
     {
         BattleEffectData data = battleEffects[effectId];
         BattleUnit effectTarget = target;
-        if (IsAttackLinkedState(data.Type))
+        if (forceAttackLink || IsAttackLinkedState(data.Type))
         {
             BattleImpactResult impact = FindLatestImpact(
                 target.BattleId, effectOrder, impacts);

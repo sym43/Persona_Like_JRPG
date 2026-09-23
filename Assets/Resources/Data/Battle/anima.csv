@@ -1,1 +1,4 @@
 ﻿id,displayName,baseLevel,strength,magic,endurance,agility,luck,slashResistance,strikeResistance,pierceResistance,joyResistance,angerResistance,despairResistance,fearResistance,loveResistance,hatredResistance,desireResistance
+test_anima_joy,희열의 아니마,10,18,15,14,16,12,Normal,Normal,Normal,Resist,Weak,Normal,Normal,Normal,Normal,Normal
+test_anima_anger,분노의 아니마,10,20,20,12,18,14,Normal,Normal,Normal,Weak,Resist,Normal,Normal,Normal,Normal,Normal
+test_enemy_anima,왜곡된 아니마,10,15,16,15,12,10,Normal,Resist,Normal,Weak,Normal,Normal,Normal,Normal,Normal,Normal

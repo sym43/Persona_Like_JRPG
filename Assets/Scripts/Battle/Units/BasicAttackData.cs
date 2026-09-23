@@ -1,4 +1,6 @@
 using System;
+using System.Collections.Generic;
+using System.Collections.ObjectModel;
 
 /// <summary>
 /// 전투원의 일반 공격 수치. <br/>
@@ -12,9 +14,12 @@ public sealed class BasicAttackData
     public int Accuracy { get; }
     //기본 공격 속성
     public DamageType DamageType { get; }
+    //공격이 맞았을 때 시도할 장비 부가 효과
+    public IReadOnlyList<BattleEffectChance> Effects { get; }
 
     //일반 공격 수치를 만듦
-    public BasicAttackData(int power, int accuracy, DamageType damageType)
+    public BasicAttackData(int power, int accuracy, DamageType damageType,
+        IEnumerable<BattleEffectChance> effects = null)
     {
         if (power < 0)
             throw new ArgumentOutOfRangeException(nameof(power), "일반 공격력은 0 이상이어야 합니다.");
@@ -26,5 +31,16 @@ public sealed class BasicAttackData
         Power = power;
         Accuracy = accuracy;
         DamageType = damageType;
+        var copiedEffects = new List<BattleEffectChance>();
+        if (effects != null)
+        {
+            foreach (BattleEffectChance effect in effects)
+            {
+                if (effect == null)
+                    throw new ArgumentException("일반 공격 효과에 비어 있는 항목이 있습니다.", nameof(effects));
+                copiedEffects.Add(effect);
+            }
+        }
+        Effects = new ReadOnlyCollection<BattleEffectChance>(copiedEffects);
     }
 }

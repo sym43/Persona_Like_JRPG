@@ -14,6 +14,10 @@ public sealed class BattleDataLoader
     private readonly AnimaSkillDataLoader animaSkillLoader = new AnimaSkillDataLoader();
     private readonly AnimaDataLoader animaLoader = new AnimaDataLoader();
     private readonly BattleUnitDataLoader battleUnitLoader = new BattleUnitDataLoader();
+    private readonly EquipmentDataLoader equipmentLoader = new EquipmentDataLoader();
+    private readonly EquipmentEffectDataLoader equipmentEffectLoader = new EquipmentEffectDataLoader();
+    private readonly DefaultEquipmentDataLoader defaultEquipmentLoader = new DefaultEquipmentDataLoader();
+    private readonly UnitEquipGroupDataLoader unitEquipGroupLoader = new UnitEquipGroupDataLoader();
 
     private BattleDataSet loadedData;
 
@@ -29,11 +33,17 @@ public sealed class BattleDataLoader
         var learnableSkills = animaSkillLoader.Load();
         var animas = animaLoader.Load(learnableSkills);
         var battleUnits = battleUnitLoader.Load();
+        var equipments = equipmentLoader.Load();
+        var equipmentEffects = equipmentEffectLoader.Load();
+        var defaultEquipment = defaultEquipmentLoader.Load();
+        var unitEquipGroups = unitEquipGroupLoader.Load();
 
         CheckReferences(animas, skills, skillEffects, items, itemEffects,
-            battleEffects, learnableSkills, battleUnits);
+            battleEffects, learnableSkills, battleUnits, equipments,
+            equipmentEffects, defaultEquipment, unitEquipGroups);
         loadedData = new BattleDataSet(animas, skills, skillEffects, items,
-            itemEffects, battleEffects, battleUnits);
+            itemEffects, battleEffects, battleUnits, equipments,
+            equipmentEffects, defaultEquipment, unitEquipGroups);
         return loadedData;
     }
 
@@ -45,7 +55,11 @@ public sealed class BattleDataLoader
         IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> itemEffects,
         IReadOnlyDictionary<string, BattleEffectData> battleEffects,
         IReadOnlyDictionary<string, IReadOnlyList<SkillLearnData>> learnableSkills,
-        IReadOnlyDictionary<string, BattleUnitData> battleUnits)
+        IReadOnlyDictionary<string, BattleUnitData> battleUnits,
+        IReadOnlyDictionary<string, EquipmentData> equipments,
+        IReadOnlyDictionary<string, IReadOnlyList<EquipmentEffectData>> equipmentEffects,
+        IReadOnlyDictionary<string, EquipmentSet> defaultEquipment,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> unitEquipGroups)
     {
         foreach (var pair in skillEffects)
         {
@@ -121,6 +135,40 @@ public sealed class BattleDataLoader
         {
             if (battleUnit.FixedAnimaId != null && !animas.ContainsKey(battleUnit.FixedAnimaId))
                 throw new FormatException($"battle_units.csv에 없는 고정 아니마 ID가 있습니다: {battleUnit.FixedAnimaId}");
+        }
+
+        foreach (var pair in equipmentEffects)
+        {
+            if (!equipments.ContainsKey(pair.Key))
+                throw new FormatException($"equipment_effects.csv에 없는 장비 ID가 있습니다: {pair.Key}");
+            foreach (EquipmentEffectData effect in pair.Value)
+            {
+                if ((effect.Type == EquipmentEffectType.BasicAttackEffect ||
+                     effect.Type == EquipmentEffectType.StartBattleEffect) &&
+                    !battleEffects.ContainsKey(effect.EffectId))
+                    throw new FormatException($"equipment_effects.csv에 없는 전투 효과 ID가 있습니다: {effect.EffectId}");
+            }
+        }
+
+        foreach (var pair in unitEquipGroups)
+        {
+            if (!battleUnits.ContainsKey(pair.Key))
+                throw new FormatException($"unit_equip_groups.csv에 없는 전투원 ID가 있습니다: {pair.Key}");
+        }
+
+        foreach (var pair in defaultEquipment)
+        {
+            if (!battleUnits.TryGetValue(pair.Key, out BattleUnitData unit))
+                throw new FormatException($"default_equipment.csv에 없는 전투원 ID가 있습니다: {pair.Key}");
+            try
+            {
+                EquipmentRules.Check(unit, pair.Value, equipments,
+                    unitEquipGroups, unit.Role != UnitRole.Enemy);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new FormatException($"default_equipment.csv의 장착 상태가 잘못됐습니다: {exception.Message}", exception);
+            }
         }
     }
 }

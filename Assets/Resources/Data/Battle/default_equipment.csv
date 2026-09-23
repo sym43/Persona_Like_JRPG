@@ -1,0 +1,3 @@
+﻿battleUnitId,weaponId,armorId,shoesId,accessoryId
+test_player,test_player_weapon,test_player_armor,test_player_shoes,test_player_accessory
+test_enemy,test_enemy_weapon,test_enemy_armor,,

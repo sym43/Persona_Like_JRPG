@@ -18,13 +18,15 @@ public sealed class GameSaveData
     public AnimaSaveData[] ownedAnimas;
     //보유 아이템 수량 목록
     public ItemSaveData[] items;
+    //플레이 가능한 전투원별 장착 장비
+    public EquipmentSaveData[] equipment;
     //적 원본별 공개된 속성 목록
     public EnemyKnowledgeSaveData[] enemyKnowledge;
 
-    //현재 보유 상태와 적 상성 기록을 저장 데이터로 묶음
+    //현재 보유·장착 상태와 적 상성 기록을 저장 데이터로 묶음
     public static GameSaveData Capture(string contentVersion, string saveLocation,
         IEnumerable<Anima> ownedAnimas, ItemInventory itemInventory,
-        EnemyKnowledge enemyKnowledge)
+        PartyEquipment partyEquipment, EnemyKnowledge enemyKnowledge)
     {
         #region 입력값 검사
 
@@ -36,6 +38,8 @@ public sealed class GameSaveData
             throw new ArgumentNullException(nameof(ownedAnimas), "보유 아니마 목록이 필요합니다.");
         if (itemInventory == null)
             throw new ArgumentNullException(nameof(itemInventory), "아이템 목록이 필요합니다.");
+        if (partyEquipment == null)
+            throw new ArgumentNullException(nameof(partyEquipment), "파티 장착 상태가 필요합니다.");
         if (enemyKnowledge == null)
             throw new ArgumentNullException(nameof(enemyKnowledge), "적 상성 기록이 필요합니다.");
 
@@ -70,6 +74,21 @@ public sealed class GameSaveData
         }
         itemSaves.Sort((left, right) => StringComparer.Ordinal.Compare(left.itemId, right.itemId));
 
+        var equipmentSaves = new List<EquipmentSaveData>(partyEquipment.Sets.Count);
+        foreach (KeyValuePair<string, EquipmentSet> pair in partyEquipment.Sets)
+        {
+            equipmentSaves.Add(new EquipmentSaveData
+            {
+                unitDataId = pair.Key,
+                weaponId = pair.Value.WeaponId,
+                armorId = pair.Value.ArmorId,
+                shoesId = pair.Value.ShoesId,
+                accessoryId = pair.Value.AccessoryId
+            });
+        }
+        equipmentSaves.Sort((left, right) =>
+            StringComparer.Ordinal.Compare(left.unitDataId, right.unitDataId));
+
         var knowledgeSaves = new List<EnemyKnowledgeSaveData>();
         foreach (string enemyDataId in enemyKnowledge.EnemyDataIds)
         {
@@ -95,6 +114,7 @@ public sealed class GameSaveData
             saveLocation = saveLocation,
             ownedAnimas = saves.ToArray(),
             items = itemSaves.ToArray(),
+            equipment = equipmentSaves.ToArray(),
             enemyKnowledge = knowledgeSaves.ToArray()
         };
     }

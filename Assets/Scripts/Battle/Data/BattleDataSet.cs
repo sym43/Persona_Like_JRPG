@@ -14,6 +14,10 @@ public sealed class BattleDataSet
     public IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> ItemEffects { get; }
     public IReadOnlyDictionary<string, BattleEffectData> BattleEffects { get; }
     public IReadOnlyDictionary<string, BattleUnitData> BattleUnits { get; }
+    public IReadOnlyDictionary<string, EquipmentData> Equipments { get; }
+    public IReadOnlyDictionary<string, IReadOnlyList<EquipmentEffectData>> EquipmentEffects { get; }
+    public IReadOnlyDictionary<string, EquipmentSet> DefaultEquipment { get; }
+    public IReadOnlyDictionary<string, IReadOnlyList<string>> UnitEquipGroups { get; }
 
     internal BattleDataSet(
         IReadOnlyDictionary<string, AnimaData> animas,
@@ -22,7 +26,11 @@ public sealed class BattleDataSet
         IReadOnlyDictionary<string, ItemData> items,
         IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> itemEffects,
         IReadOnlyDictionary<string, BattleEffectData> battleEffects,
-        IReadOnlyDictionary<string, BattleUnitData> battleUnits)
+        IReadOnlyDictionary<string, BattleUnitData> battleUnits,
+        IReadOnlyDictionary<string, EquipmentData> equipments,
+        IReadOnlyDictionary<string, IReadOnlyList<EquipmentEffectData>> equipmentEffects,
+        IReadOnlyDictionary<string, EquipmentSet> defaultEquipment,
+        IReadOnlyDictionary<string, IReadOnlyList<string>> unitEquipGroups)
     {
         if (animas == null) throw new ArgumentNullException(nameof(animas), "아니마 목록이 필요합니다.");
         if (skills == null) throw new ArgumentNullException(nameof(skills), "스킬 목록이 필요합니다.");
@@ -31,6 +39,10 @@ public sealed class BattleDataSet
         if (itemEffects == null) throw new ArgumentNullException(nameof(itemEffects), "아이템 효과 목록이 필요합니다.");
         if (battleEffects == null) throw new ArgumentNullException(nameof(battleEffects), "전투 효과 목록이 필요합니다.");
         if (battleUnits == null) throw new ArgumentNullException(nameof(battleUnits), "전투원 목록이 필요합니다.");
+        if (equipments == null) throw new ArgumentNullException(nameof(equipments), "장비 목록이 필요합니다.");
+        if (equipmentEffects == null) throw new ArgumentNullException(nameof(equipmentEffects), "장비 효과 목록이 필요합니다.");
+        if (defaultEquipment == null) throw new ArgumentNullException(nameof(defaultEquipment), "기본 장비 목록이 필요합니다.");
+        if (unitEquipGroups == null) throw new ArgumentNullException(nameof(unitEquipGroups), "장착 그룹 목록이 필요합니다.");
 
         Animas = Copy(animas);
         Skills = Copy(skills);
@@ -39,6 +51,10 @@ public sealed class BattleDataSet
         ItemEffects = CopyLists(itemEffects);
         BattleEffects = Copy(battleEffects);
         BattleUnits = Copy(battleUnits);
+        Equipments = Copy(equipments);
+        EquipmentEffects = CopyLists(equipmentEffects);
+        DefaultEquipment = Copy(defaultEquipment);
+        UnitEquipGroups = CopyLists(unitEquipGroups);
     }
 
     private static IReadOnlyDictionary<string, T> Copy<T>(IReadOnlyDictionary<string, T> source)

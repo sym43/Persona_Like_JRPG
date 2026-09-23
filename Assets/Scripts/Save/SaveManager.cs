@@ -30,13 +30,13 @@ public sealed class SaveManager
         this.battleDataLoader = battleDataLoader ?? throw new ArgumentNullException(nameof(battleDataLoader), "전투 데이터 로더가 필요합니다.");
     }
 
-    //보유 상태와 적 상성 기록을 저장함
+    //보유·장착 상태와 적 상성 기록을 저장함
     public void Save(string slotId, string contentVersion, string saveLocation,
         IEnumerable<Anima> ownedAnimas, ItemInventory itemInventory,
-        EnemyKnowledge enemyKnowledge)
+        PartyEquipment partyEquipment, EnemyKnowledge enemyKnowledge)
     {
         var saveData = GameSaveData.Capture(contentVersion, saveLocation,
-            ownedAnimas, itemInventory, enemyKnowledge);
+            ownedAnimas, itemInventory, partyEquipment, enemyKnowledge);
         saveStore.Save(slotId, saveData);
     }
 
@@ -104,6 +104,35 @@ public sealed class SaveManager
 
             foreach (DamageType damageType in savedKnowledge.revealedDamageTypes)
                 result.Reveal(savedKnowledge.enemyDataId, damageType);
+        }
+        return result;
+    }
+
+    //저장 파일을 읽고 플레이 가능한 전투원의 장착 상태를 복원함
+    public PartyEquipment LoadPartyEquipment(string slotId)
+    {
+        GameSaveData saveData = Load(slotId);
+        BattleDataSet battleData = battleDataLoader.Load();
+        var result = new PartyEquipment();
+
+        foreach (EquipmentSaveData saved in saveData.equipment)
+        {
+            if (!battleData.BattleUnits.TryGetValue(saved.unitDataId,
+                    out BattleUnitData unit) || unit.Role == UnitRole.Enemy)
+                throw new FormatException($"세이브에 없는 플레이 가능 전투원 ID가 있습니다: {saved.unitDataId}");
+
+            var equipment = new EquipmentSet(saved.weaponId, saved.armorId,
+                saved.shoesId, saved.accessoryId);
+            try
+            {
+                EquipmentRules.Check(unit, equipment, battleData.Equipments,
+                    battleData.UnitEquipGroups, true);
+            }
+            catch (InvalidOperationException exception)
+            {
+                throw new FormatException($"세이브의 장착 상태가 잘못됐습니다: {exception.Message}", exception);
+            }
+            result.Set(saved.unitDataId, equipment);
         }
         return result;
     }

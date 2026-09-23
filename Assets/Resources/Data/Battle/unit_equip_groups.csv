@@ -1,0 +1,7 @@
+﻿battleUnitId,equipGroupId
+test_player,player_weapon
+test_player,common_armor
+test_player,common_shoes
+test_player,common_accessory
+test_enemy,enemy_weapon
+test_enemy,enemy_armor

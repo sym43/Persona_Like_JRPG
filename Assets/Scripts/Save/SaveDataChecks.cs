@@ -68,6 +68,27 @@ internal static class SaveDataChecks
 
         #endregion
 
+        #region 장착 장비 검사
+
+        if (saveData.equipment == null)
+            throw new FormatException("장착 장비 목록이 없습니다.");
+
+        var equippedUnitIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (EquipmentSaveData equipment in saveData.equipment)
+        {
+            if (equipment == null)
+                throw new FormatException("장착 장비 목록에 비어 있는 항목이 있습니다.");
+            CheckText(equipment.unitDataId, "장착 전투원 ID");
+            if (!equippedUnitIds.Add(equipment.unitDataId))
+                throw new FormatException($"장착 전투원 ID가 중복됩니다: {equipment.unitDataId}");
+            CheckOptionalText(equipment.weaponId, "무기 ID");
+            CheckOptionalText(equipment.armorId, "방어구 ID");
+            CheckOptionalText(equipment.shoesId, "신발 ID");
+            CheckOptionalText(equipment.accessoryId, "액세서리 ID");
+        }
+
+        #endregion
+
         #region 적 상성 기록 검사
 
         if (saveData.enemyKnowledge == null)
@@ -102,6 +123,12 @@ internal static class SaveDataChecks
     {
         if (string.IsNullOrWhiteSpace(value))
             throw new FormatException($"{label}이(가) 비어 있습니다.");
+    }
+
+    //값이 있으면 공백 문자열인지 검사함
+    private static void CheckOptionalText(string value, string label)
+    {
+        if (value != null) CheckText(value, label);
     }
 
     //능력치 범위를 검사함

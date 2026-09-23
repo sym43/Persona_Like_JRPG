@@ -54,24 +54,4 @@ internal static class BattleDataChecks
         return copy.AsReadOnly();
     }
 
-    //장비 ID 목록을 검사하고 복사해서 반환함
-    internal static ReadOnlyCollection<string> CheckAndCopyEquipmentIds(IReadOnlyList<string> values)
-    {
-        #region 입력값 검사
-
-        if (values == null) throw new ArgumentNullException(nameof(values), "장비 목록이 필요합니다.");
-        if (values.Count != 4)
-            throw new ArgumentException("장비 슬롯은 정확히 4개여야 합니다.", nameof(values));
-
-        #endregion
-
-        var copy = new string[4];
-        for (int i = 0; i < copy.Length; i++)
-        {
-            copy[i] = values[i];
-            if (copy[i] != null) CheckText(copy[i]);
-        }
-
-        return Array.AsReadOnly(copy);
-    }
 }
