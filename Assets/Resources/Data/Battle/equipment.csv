@@ -1,7 +1,13 @@
 ﻿id,displayName,slot,equipGroupId,attackPower,accuracy,damageType,defense,evasion
-test_player_weapon,검증용 감정검,Weapon,player_weapon,32,95,Slash,0,0
+test_player_weapon,검증용 장검,Weapon,ally_weapon,32,95,Slash,0,0
+test_ally_love_weapon,검증용 활,Weapon,ally_weapon,28,97,Pierce,0,0
+test_ally_anger_weapon,검증용 대검,Weapon,ally_weapon,36,90,Slash,0,0
+test_ally_fear_weapon,검증용 장갑,Weapon,ally_weapon,30,96,Strike,0,0
 test_player_armor,검증용 방어구,Armor,common_armor,0,0,,18,0
 test_player_shoes,검증용 신발,Shoes,common_shoes,0,0,,0,6
 test_player_accessory,검증용 부적,Accessory,common_accessory,0,0,,0,0
-test_enemy_weapon,테스트 적의 발톱,Weapon,enemy_weapon,18,90,Strike,0,0
+test_enemy_weapon,희열 그림자의 발톱,Weapon,enemy_weapon,24,92,Strike,0,0
+test_enemy_love_weapon,애정 그림자의 가시,Weapon,enemy_weapon,22,94,Pierce,0,0
+test_enemy_anger_weapon,분노 그림자의 칼날,Weapon,enemy_weapon,28,90,Slash,0,0
+test_enemy_fear_weapon,공포 그림자의 주먹,Weapon,enemy_weapon,26,91,Strike,0,0
 test_enemy_armor,테스트 적의 외피,Armor,enemy_armor,0,0,,10,0

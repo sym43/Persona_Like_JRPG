@@ -100,6 +100,24 @@ public sealed class BattleController : MonoBehaviour
         return session?.GetUsableItems() ?? Array.Empty<ItemData>();
     }
 
+    //현재 행동자가 사용할 수 있는 스킬을 구함
+    public IReadOnlyList<SkillData> GetUsableSkills()
+    {
+        return session?.GetUsableSkills() ?? Array.Empty<SkillData>();
+    }
+
+    //현재 행동자의 살아 있는 상대를 구함
+    public IReadOnlyList<BattleUnit> GetOpponents()
+    {
+        return session?.GetOpponents() ?? Array.Empty<BattleUnit>();
+    }
+
+    //현재 행동자와 같은 편의 살아 있는 전투원을 구함
+    public IReadOnlyList<BattleUnit> GetAllies()
+    {
+        return session?.GetAllies() ?? Array.Empty<BattleUnit>();
+    }
+
     //현재 가진 아이템 수량을 구함
     public int GetItemCount(string itemId)
     {

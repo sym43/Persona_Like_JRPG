@@ -1,4 +1,10 @@
 ﻿id,displayName,baseLevel,strength,magic,endurance,agility,luck,slashResistance,strikeResistance,pierceResistance,joyResistance,angerResistance,despairResistance,fearResistance,loveResistance,hatredResistance,desireResistance
 test_anima_joy,희열의 아니마,10,18,15,14,16,12,Normal,Normal,Normal,Resist,Weak,Normal,Normal,Normal,Normal,Normal
 test_anima_anger,분노의 아니마,10,20,20,12,18,14,Normal,Normal,Normal,Weak,Resist,Normal,Normal,Normal,Normal,Normal
-test_enemy_anima,왜곡된 아니마,10,15,16,15,12,10,Normal,Resist,Normal,Weak,Normal,Normal,Normal,Normal,Normal,Normal
+test_ally_anima_love,애정의 아니마,10,14,18,13,17,15,Normal,Normal,Normal,Normal,Normal,Normal,Normal,Resist,Weak,Normal
+test_ally_anima_anger,격정의 아니마,10,20,12,16,14,11,Normal,Normal,Normal,Normal,Resist,Normal,Weak,Normal,Normal,Normal
+test_ally_anima_fear,전율의 아니마,10,18,14,17,15,13,Normal,Normal,Normal,Reflect,Normal,Normal,Resist,Weak,Normal,Normal
+test_enemy_anima,희열에 굶주린 그림자,10,16,17,15,13,12,Normal,Normal,Normal,Weak,Resist,Normal,Normal,Normal,Normal,Normal
+test_enemy_anima_love,애정을 거부한 그림자,10,14,18,14,15,13,Normal,Normal,Normal,Normal,Normal,Normal,Normal,Weak,Resist,Normal
+test_enemy_anima_anger,분노를 삼킨 그림자,10,19,14,17,12,11,Normal,Normal,Normal,Normal,Weak,Normal,Resist,Normal,Normal,Normal
+test_enemy_anima_fear,공포를 비추는 그림자,10,17,16,16,14,12,Normal,Normal,Normal,Reflect,Normal,Normal,Weak,Normal,Normal,Normal

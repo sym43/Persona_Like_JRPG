@@ -349,6 +349,25 @@ public sealed class BattleSession
         return result.AsReadOnly();
     }
 
+    //스킬에 연결된 실행 효과를 구함
+    internal IReadOnlyList<SkillEffectData> GetSkillEffects(string skillId)
+    {
+        BattleDataChecks.CheckText(skillId);
+        if (!skillEffects.TryGetValue(skillId,
+                out IReadOnlyList<SkillEffectData> effects))
+            throw new InvalidOperationException("스킬에 실행 효과가 없습니다.");
+        return effects;
+    }
+
+    //ID에 해당하는 전투 효과 원본을 구함
+    internal BattleEffectData GetBattleEffect(string effectId)
+    {
+        BattleDataChecks.CheckText(effectId);
+        if (!battleEffects.TryGetValue(effectId, out BattleEffectData effect))
+            throw new InvalidOperationException("전투 효과 원본이 없습니다.");
+        return effect;
+    }
+
     //현재 행동자가 전투에서 사용할 수 있는 보유 아이템을 구함
     public IReadOnlyList<ItemData> GetUsableItems()
     {
