@@ -1,0 +1,9 @@
+﻿id,displayName,role,baseLevel,baseMaxHp,baseMaxSp,fixedAnimaId
+test_player,테스트 주인공,MainCharacter,10,220,80,
+test_ally_love,테스트 동료 애정,Companion,10,180,110,test_ally_anima_love
+test_ally_anger,테스트 동료 분노,Companion,10,260,60,test_ally_anima_anger
+test_ally_fear,테스트 동료 공포,Companion,10,230,70,test_ally_anima_fear
+test_enemy,테스트 적 희열,Enemy,10,230,60,test_enemy_anima
+test_enemy_love,테스트 적 애정,Enemy,10,210,80,test_enemy_anima_love
+test_enemy_anger,테스트 적 분노,Enemy,10,260,50,test_enemy_anima_anger
+test_enemy_fear,테스트 적 공포,Enemy,10,240,70,test_enemy_anima_fear

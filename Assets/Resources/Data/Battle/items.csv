@@ -1,0 +1,9 @@
+﻿id,displayName,description,useType,targetType
+sample_medicine,샘플 회복약,아군 하나의 HP를 50 회복한다.,Both,OneAlly
+sample_soul_drop,샘플 SP 회복약,아군 하나의 SP를 20 회복한다.,Both,OneAlly
+sample_revival_bead,샘플 부활약,전투불능 아군 하나를 HP 50%로 부활시킨다.,BattleOnly,OneDeadAlly
+sample_joy_gem,샘플 희열 보석,적 하나에게 희열 속성 고정 피해 50을 준다.,BattleOnly,OneEnemy
+sample_power_item,샘플 공격 강화제,아군 하나의 공격력을 3턴 동안 높인다.,BattleOnly,OneAlly
+sample_dekaja_item,샘플 강화 해제제,적 하나의 능력치 상승 효과를 해제한다.,BattleOnly,OneEnemy
+sample_dekunda_item,샘플 약화 해제제,아군 하나의 능력치 저하 효과를 해제한다.,BattleOnly,OneAlly
+sample_mind_cure,샘플 정신 회복약,아군 하나의 정신 상태이상을 회복한다.,Both,OneAlly

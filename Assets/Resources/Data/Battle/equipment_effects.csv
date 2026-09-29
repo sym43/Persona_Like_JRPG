@@ -1,0 +1,6 @@
+﻿equipmentId,order,effectType,statType,value,damageType,resistanceType,mentalState,mentalResistance,effectId,applyChance
+test_player_weapon,0,BasicAttackEffect,,0,,,,,intimidation,20
+test_player_armor,0,StartBattleEffect,,0,,,,,defense_up,100
+test_player_accessory,0,StatBonus,Luck,3,,,,,,100
+test_player_accessory,1,DamageResistance,,0,Love,Resist,,,,100
+test_player_accessory,2,MentalResistance,,0,,,Charm,Resist,,100
