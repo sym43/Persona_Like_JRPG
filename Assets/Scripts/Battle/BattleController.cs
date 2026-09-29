@@ -46,8 +46,11 @@ public sealed class BattleController : MonoBehaviour
     public BattleUnit CurrentUnit => session?.CurrentUnit;
     //현재 전투 진행 단계
     public BattlePhase Phase { get; private set; } = BattlePhase.None;
+    //현재 원모어로 얻은 추가 행동인지
+    public bool IsOneMoreTurn => session?.IsOneMoreTurn ?? false;
     //현재 주인공이 아니마를 교체할 수 있는지
-    public bool CanChangeAnima => session?.CanChangeAnima ?? false;
+    public bool CanChangeAnima => Phase == BattlePhase.ChoosingAction &&
+        (session?.CanChangeAnima ?? false);
 
     //전투를 시작함
     public void StartBattle(BattleSession battleSession)
@@ -106,6 +109,18 @@ public sealed class BattleController : MonoBehaviour
         return session?.GetUsableSkills() ?? Array.Empty<SkillData>();
     }
 
+    //전투원이 가진 액티브·패시브 스킬 원본을 구함
+    public IReadOnlyList<SkillData> GetUnitSkills(BattleUnit unit)
+    {
+        return session?.GetUnitSkills(unit) ?? Array.Empty<SkillData>();
+    }
+
+    //전투에 지참한 아니마가 가진 스킬 원본을 구함
+    public IReadOnlyList<SkillData> GetAnimaSkills(Anima anima)
+    {
+        return session?.GetAnimaSkills(anima) ?? Array.Empty<SkillData>();
+    }
+
     //현재 행동자의 살아 있는 상대를 구함
     public IReadOnlyList<BattleUnit> GetOpponents()
     {
@@ -118,6 +133,12 @@ public sealed class BattleController : MonoBehaviour
         return session?.GetAllies() ?? Array.Empty<BattleUnit>();
     }
 
+    //현재 행동자와 같은 편의 전투 불능 전투원을 구함
+    public IReadOnlyList<BattleUnit> GetDeadAllies()
+    {
+        return session?.GetDeadAllies() ?? Array.Empty<BattleUnit>();
+    }
+
     //현재 가진 아이템 수량을 구함
     public int GetItemCount(string itemId)
     {
@@ -128,6 +149,37 @@ public sealed class BattleController : MonoBehaviour
     public ResistanceType? GetKnownResistance(string unitId, DamageType damageType)
     {
         return session?.GetKnownResistance(unitId, damageType);
+    }
+
+    //스킬 공격 속성에 해당하는 현재 적의 공개된 상성을 구함
+    public ResistanceType? GetKnownSkillResistance(string unitId, string skillId)
+    {
+        return session?.GetKnownSkillResistance(unitId, skillId);
+    }
+
+    //스킬의 첫 피해 효과 속성을 구함
+    public DamageType? GetSkillDamageType(string skillId)
+    {
+        return session?.GetSkillDamageType(skillId);
+    }
+
+    //아이템의 첫 피해 효과 속성을 구함
+    public DamageType? GetItemDamageType(string itemId)
+    {
+        return session?.GetItemDamageType(itemId);
+    }
+
+    //스킬에 연결된 실행 효과를 구함
+    public IReadOnlyList<SkillEffectData> GetSkillEffects(string skillId)
+    {
+        return session?.GetSkillEffects(skillId)
+            ?? Array.Empty<SkillEffectData>();
+    }
+
+    //적용 효과가 강화·약화·정신 상태 중 어디에 속하는지 구함
+    public BattleEffectCategory? GetBattleEffectCategory(string effectId)
+    {
+        return session?.GetBattleEffect(effectId).Category;
     }
 
     //주인공이 전투에 지참한 아니마를 구함
@@ -145,7 +197,8 @@ public sealed class BattleController : MonoBehaviour
 
         BattleUnit unit = session.CurrentUnit;
         string previousAnimaId = unit.AnimaInstanceId;
-        session.ChangeAnima(instanceId);
+        if (!session.ChangeAnima(instanceId))
+            return;
         Phase = BattlePhase.ChangingAnima;
         if (AnimaChanged == null)
             FinishAnimaChange();

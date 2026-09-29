@@ -203,7 +203,7 @@ public sealed class EnemyActionSelector
     {
         int score = AttackBaseScore + Math.Min(power, 200) / 2 +
             Math.Min(hitCount, 3) * 10;
-        switch (target.Resistances.Get(damageType))
+        switch (target.GetResistance(damageType))
         {
             case ResistanceType.Weak:
                 score += 100;

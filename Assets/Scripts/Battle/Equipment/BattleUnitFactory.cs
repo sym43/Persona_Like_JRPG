@@ -25,7 +25,8 @@ public sealed class BattleUnitFactory
             throw new InvalidOperationException("적 원본으로 아군 전투원을 만들 수 없습니다.");
 
         return Create(battleId, unit, characterId, anima.InstanceId,
-            anima.Data.Id, turnTieOrder, level, unit.BaseMaxHp, unit.BaseMaxSp,
+            anima.Data.Id, anima.Data.DisplayName, turnTieOrder, level,
+            unit.BaseMaxHp, unit.BaseMaxSp,
             hp, sp, anima.Stats, anima.Data.Resistances,
             baseMentalResistance, anima.SkillIds, equipment, true);
     }
@@ -41,7 +42,7 @@ public sealed class BattleUnitFactory
         if (unit.Role != UnitRole.Enemy)
             throw new InvalidOperationException("아군 원본으로 적 전투원을 만들 수 없습니다.");
 
-        return Create(battleId, unit, null, null, null, turnTieOrder,
+        return Create(battleId, unit, null, null, null, null, turnTieOrder,
             unit.BaseLevel, unit.BaseMaxHp, unit.BaseMaxSp, hp, sp,
             stats, resistances, baseMentalResistance, skillIds,
             equipment, usesBasicAttack);
@@ -95,7 +96,8 @@ public sealed class BattleUnitFactory
 
     private BattleUnit Create(string battleId, BattleUnitData unit,
         string characterId, string animaInstanceId, string animaDataId,
-        int turnTieOrder, int level, int maxHp, int maxSp, int hp, int sp,
+        string animaDisplayName, int turnTieOrder, int level,
+        int maxHp, int maxSp, int hp, int sp,
         BattleStats stats, ResistanceTable resistances,
         MentalResistanceTable baseMentalResistance,
         IEnumerable<string> skillIds, EquipmentSet equipment,
@@ -116,14 +118,26 @@ public sealed class BattleUnitFactory
             : null;
 
         var result = new BattleUnit(battleId, unit, characterId,
-            animaInstanceId, animaDataId, turnTieOrder, level,
+            animaInstanceId, animaDataId, animaDisplayName,
+            turnTieOrder, level,
             maxHp, maxSp, hp, sp, stats, resistances,
             build.MentalResistance, skillIds, equipment, basicAttack,
             build.Armor, build.ShoeEvasion, build.StatBonus,
-            build.ResistanceChanges);
+            build.ResistanceChanges, data.PassiveEffects);
 
         foreach (string effectId in build.StartEffectIds)
             result.ApplyEffect(data.BattleEffects[effectId], result.BattleId);
+        foreach (string skillId in result.SkillIds)
+        {
+            if (!data.PassiveEffects.TryGetValue(skillId,
+                    out IReadOnlyList<PassiveEffectData> effects))
+                continue;
+            foreach (PassiveEffectData effect in effects)
+            {
+                if (effect.Type == PassiveEffectType.StartBattleEffect)
+                    result.ApplyEffect(data.BattleEffects[effect.EffectId], result.BattleId);
+            }
+        }
         return result;
     }
 

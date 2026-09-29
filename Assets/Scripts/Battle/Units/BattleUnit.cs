@@ -18,6 +18,8 @@ public sealed class BattleUnit
     public string AnimaInstanceId { get; private set; }
     //현재 아니마 데이터 ID
     public string AnimaDataId { get; private set; }
+    //현재 아니마 표시 이름
+    public string AnimaDisplayName { get; private set; }
     //속도가 같을 때 사용할 순서
     public int TurnTieOrder { get; }
     //전투 레벨
@@ -40,6 +42,9 @@ public sealed class BattleUnit
     public bool IsGuarding { get; private set; }
     //전투 이탈 여부
     public bool HasLeftBattle { get; private set; }
+    //현재 행동을 방해하는 정신 상태 보유 여부
+    public bool HasMentalState => effectStates.Exists(
+        state => state.Effect.Category == BattleEffectCategory.MentalState);
     //전투 능력치
     public BattleStats Stats { get; private set; }
     //전투 시작 시 민첩
@@ -64,18 +69,22 @@ public sealed class BattleUnit
     private readonly List<BattleUnitEffectState> effectStates = new List<BattleUnitEffectState>();
     private readonly EquipmentStatBonus equipmentStatBonus;
     private readonly IReadOnlyDictionary<DamageType, ResistanceType> equipmentResistanceChanges;
+    private readonly IReadOnlyDictionary<string, IReadOnlyList<PassiveEffectData>> passiveEffects;
+    private bool endureUsed;
 
     //전투원을 만듦
     public BattleUnit(string battleId, BattleUnitData unitData,
         string characterId, string animaInstanceId,
-        string animaDataId, int turnTieOrder, int level,
+        string animaDataId, string animaDisplayName,
+        int turnTieOrder, int level,
         int maxHp, int maxSp, int hp, int sp, BattleStats stats,
         ResistanceTable resistances, MentalResistanceTable mentalResistance,
         IEnumerable<string> skillIds,
         EquipmentSet equipment, BasicAttackData basicAttack,
         int armor, int shoeEvasion,
         EquipmentStatBonus statBonus = null,
-        IReadOnlyDictionary<DamageType, ResistanceType> resistanceChanges = null)
+        IReadOnlyDictionary<DamageType, ResistanceType> resistanceChanges = null,
+        IReadOnlyDictionary<string, IReadOnlyList<PassiveEffectData>> passiveEffects = null)
     {
         #region 입력값 검사
 
@@ -99,6 +108,7 @@ public sealed class BattleUnit
             BattleDataChecks.CheckText(characterId);
             BattleDataChecks.CheckText(animaInstanceId);
             BattleDataChecks.CheckText(animaDataId);
+            BattleDataChecks.CheckText(animaDisplayName);
         }
         if (unitData.Role == UnitRole.Companion &&
             !string.Equals(animaDataId, unitData.FixedAnimaId,
@@ -112,12 +122,16 @@ public sealed class BattleUnit
         CharacterId = characterId;
         AnimaInstanceId = animaInstanceId;
         AnimaDataId = animaDataId;
+        AnimaDisplayName = animaDisplayName;
         TurnTieOrder = turnTieOrder;
         Level = level;
         MaxHp = maxHp;
         MaxSp = maxSp;
         equipmentStatBonus = statBonus ?? new EquipmentStatBonus(0, 0, 0, 0, 0);
         equipmentResistanceChanges = CopyResistanceChanges(resistanceChanges);
+        this.passiveEffects = passiveEffects ??
+            new ReadOnlyDictionary<string, IReadOnlyList<PassiveEffectData>>(
+                new Dictionary<string, IReadOnlyList<PassiveEffectData>>());
         Stats = equipmentStatBonus.Apply(stats);
         StartAgility = Stats.Agility;
         Resistances = ApplyResistanceChanges(resistances, equipmentResistanceChanges);
@@ -141,6 +155,7 @@ public sealed class BattleUnit
 
         AnimaInstanceId = anima.InstanceId;
         AnimaDataId = anima.Data.Id;
+        AnimaDisplayName = anima.Data.DisplayName;
         Stats = equipmentStatBonus.Apply(anima.Stats);
         Resistances = ApplyResistanceChanges(anima.Data.Resistances,
             equipmentResistanceChanges);
@@ -156,7 +171,24 @@ public sealed class BattleUnit
 
         #endregion
 
-        Hp = (int)Math.Max(0, (long)Hp - damage);
+        long hpAfter = (long)Hp - damage;
+        if (Hp > 0 && hpAfter <= 0 && !endureUsed)
+        {
+            if (HasPassive(PassiveEffectType.EnduringSoul))
+            {
+                endureUsed = true;
+                Hp = MaxHp;
+                return;
+            }
+            if (HasPassive(PassiveEffectType.Endure))
+            {
+                endureUsed = true;
+                Hp = 1;
+                return;
+            }
+        }
+
+        Hp = (int)Math.Max(0, hpAfter);
         if (Hp == 0)
         {
             IsDown = false;
@@ -393,8 +425,130 @@ public sealed class BattleUnit
                 continue;
 
             int chance = BattleAttackCalculator.CalculateMentalRecoveryChance(this, state.Effect.Type);
+            chance = Math.Min(100, (int)Math.Truncate(chance *
+                GetPassiveMultiplier(PassiveEffectType.MentalRecoveryMultiplier)));
             if (random.Next(100) < chance)
                 effectStates.RemoveAt(i);
+        }
+    }
+
+    //현재 보유 스킬에서 조건에 맞는 패시브가 있는지 확인함
+    public bool HasPassive(PassiveEffectType type, DamageType? damageType = null)
+    {
+        foreach (PassiveEffectData effect in GetPassives(type))
+        {
+            if (!effect.DamageType.HasValue || effect.DamageType == damageType)
+                return true;
+        }
+        return false;
+    }
+
+    //현재 보유 패시브의 배율을 곱해서 반환함
+    public double GetPassiveMultiplier(PassiveEffectType type,
+        DamageType? damageType = null, double maximum = double.MaxValue)
+    {
+        double value = 1d;
+        foreach (PassiveEffectData effect in GetPassives(type))
+        {
+            if (effect.DamageType.HasValue && effect.DamageType != damageType) continue;
+            value *= effect.Value / 100d;
+        }
+        return Math.Min(maximum, value);
+    }
+
+    //현재 보유 패시브의 수치를 합산함
+    public int GetPassiveTotal(PassiveEffectType type)
+    {
+        int value = 0;
+        foreach (PassiveEffectData effect in GetPassives(type)) value += effect.Value;
+        return value;
+    }
+
+    //현재 보유 패시브 중 가장 큰 수치를 반환함
+    public int GetPassiveMaximum(PassiveEffectType type)
+    {
+        int value = 0;
+        foreach (PassiveEffectData effect in GetPassives(type))
+            value = Math.Max(value, effect.Value);
+        return value;
+    }
+
+    //아니마 기본 상성 위에 패시브 상성 변경을 적용함
+    public ResistanceType GetResistance(DamageType damageType)
+    {
+        ResistanceType result = Resistances.Get(damageType);
+        foreach (PassiveEffectData effect in GetPassives(PassiveEffectType.Resistance))
+        {
+            if (effect.DamageType == damageType &&
+                GetResistanceRank(effect.ResistanceType.Value) > GetResistanceRank(result))
+                result = effect.ResistanceType.Value;
+        }
+        return result;
+    }
+
+    //특정 또는 모든 정신 상태 성공률 패시브 배율을 반환함
+    public double GetAilmentMultiplier(string effectId)
+    {
+        double value = 1d;
+        foreach (PassiveEffectData effect in GetPassives(PassiveEffectType.AilmentMultiplier))
+        {
+            if (effect.EffectId == null ||
+                string.Equals(effect.EffectId, effectId, StringComparison.Ordinal))
+                value *= effect.Value / 100d;
+        }
+        return value;
+    }
+
+    //기본 행동 시작에 자동 HP/SP 회복을 적용함
+    public void ApplyTurnStartPassives()
+    {
+        int hpRate = GetPassiveTotal(PassiveEffectType.TurnHpRecovery);
+        int spRate = GetPassiveTotal(PassiveEffectType.TurnSpRecovery);
+        if (hpRate > 0) RecoverHp(Math.Max(1, (int)Math.Truncate(MaxHp * hpRate / 100d)));
+        if (spRate > 0) RecoverSp(Math.Max(1, (int)Math.Truncate(MaxSp * spRate / 100d)));
+    }
+
+    //패시브 비용 감소까지 적용한 실제 스킬 비용을 반환함
+    public int GetSkillCost(SkillData skill)
+    {
+        if (skill == null) throw new ArgumentNullException(nameof(skill), "스킬이 필요합니다.");
+        if (skill.CostType == SkillCostType.None) return 0;
+
+        int cost = skill.CostType == SkillCostType.Hp
+            ? BattleAttackCalculator.CalculateHpCost(this, skill.Cost)
+            : skill.Cost;
+        PassiveEffectType type = skill.CostType == SkillCostType.Hp
+            ? PassiveEffectType.HpCostMultiplier
+            : PassiveEffectType.SpCostMultiplier;
+        int adjusted = (int)Math.Truncate(cost * GetPassiveMultiplier(type));
+        return cost == 0 ? 0 : Math.Max(1, adjusted);
+    }
+
+    private IEnumerable<PassiveEffectData> GetPassives(PassiveEffectType type)
+    {
+        foreach (string skillId in SkillIds)
+        {
+            if (!passiveEffects.TryGetValue(skillId,
+                    out IReadOnlyList<PassiveEffectData> effects))
+                continue;
+            foreach (PassiveEffectData effect in effects)
+            {
+                if (effect.Type == type) yield return effect;
+            }
+        }
+    }
+
+    private static int GetResistanceRank(ResistanceType resistance)
+    {
+        switch (resistance)
+        {
+            case ResistanceType.Weak: return 0;
+            case ResistanceType.Normal: return 1;
+            case ResistanceType.Resist: return 2;
+            case ResistanceType.Immune: return 3;
+            case ResistanceType.Reflect: return 4;
+            case ResistanceType.Drain: return 5;
+            default: throw new ArgumentOutOfRangeException(nameof(resistance));
         }
     }
 
@@ -405,6 +559,7 @@ public sealed class BattleUnit
         IsDown = false;
         IsGuarding = false;
         HasLeftBattle = false;
+        endureUsed = false;
     }
 
     //조건에 맞는 효과를 제거함

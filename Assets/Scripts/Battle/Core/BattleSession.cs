@@ -34,10 +34,12 @@ public sealed class BattleSession
     private int orderIndex = -1;
     private BattleUnit currentUnit;
     private bool actionExecuted;
+    private bool shiftUsed;
     private string pendingOneMoreUnitId;
     private bool allOutAttackAvailable;
     private BattleAction mentalAction;
     private bool animaChangeUsed;
+    private bool animaChangePending;
 
     //현재 전투 순환 번호
     public int Round { get; private set; } = 1;
@@ -155,15 +157,17 @@ public sealed class BattleSession
         return animas;
     }
 
-    //주인공의 현재 아니마를 바꾸고 같은 행동에서 재교체하지 못하게 함
-    public void ChangeAnima(string instanceId)
+    //주인공의 현재 아니마를 바꿈. 같은 아니마면 변경하지 않음
+    public bool ChangeAnima(string instanceId)
     {
         BattleDataChecks.CheckText(instanceId);
+        if (currentUnit == mainCharacter && !actionExecuted &&
+            mentalAction == null &&
+            string.Equals(mainCharacter.AnimaInstanceId, instanceId,
+                StringComparison.Ordinal))
+            return false;
         if (!CanChangeAnima)
             throw new InvalidOperationException("현재 아니마를 교체할 수 없습니다.");
-        if (string.Equals(mainCharacter.AnimaInstanceId, instanceId,
-                StringComparison.Ordinal))
-            throw new InvalidOperationException("현재 사용 중인 아니마입니다.");
 
         foreach (Anima anima in animas)
         {
@@ -171,8 +175,8 @@ public sealed class BattleSession
                 continue;
 
             mainCharacter.ChangeAnima(anima);
-            animaChangeUsed = true;
-            return;
+            animaChangePending = true;
+            return true;
         }
 
         throw new InvalidOperationException("전투에 지참하지 않은 아니마입니다.");
@@ -225,6 +229,11 @@ public sealed class BattleSession
         BattleActionResult result = actionExecutor.Execute(action, currentUnit,
             targets, skill, selectedSkillEffects, item, selectedItemEffects,
             itemCountAfter);
+        if (currentUnit == mainCharacter)
+        {
+            animaChangeUsed |= animaChangePending;
+            animaChangePending = false;
+        }
         pendingOneMoreUnitId = result.OneMoreUnitId;
         allOutAttackAvailable = CanOfferAllOutAttack(result);
         actionExecuted = true;
@@ -235,7 +244,8 @@ public sealed class BattleSession
     //원모어를 넘길 수 있는 살아 있는 아군을 구함
     public IReadOnlyList<BattleUnit> GetShiftTargets()
     {
-        if (currentUnit == null || !IsOneMoreTurn || actionExecuted || currentUnit.IsEnemy)
+        if (currentUnit == null || !IsOneMoreTurn || actionExecuted ||
+            shiftUsed || currentUnit.IsEnemy || currentUnit.HasMentalState)
             return Array.Empty<BattleUnit>();
 
         var result = new List<BattleUnit>();
@@ -243,6 +253,7 @@ public sealed class BattleSession
         {
             BattleUnit unit = units[entry.UnitId];
             if (!unit.IsEnemy && !unit.IsDead && !unit.HasLeftBattle &&
+                !unit.HasMentalState &&
                 !string.Equals(unit.BattleId, currentUnit.BattleId,
                     StringComparison.Ordinal))
                 result.Add(unit);
@@ -260,8 +271,12 @@ public sealed class BattleSession
                 continue;
 
             currentUnit = unit;
+            shiftUsed = true;
             if (unit == mainCharacter)
+            {
                 animaChangeUsed = false;
+                animaChangePending = false;
+            }
             mentalAction = ChooseMentalAction(unit);
             return unit;
         }
@@ -280,7 +295,7 @@ public sealed class BattleSession
         {
             BattleUnit unit = units[entry.UnitId];
             if (!unit.IsEnemy && !unit.IsDead && !unit.IsDown &&
-                !unit.HasLeftBattle)
+                !unit.HasLeftBattle && !unit.HasMentalState)
                 result.Add(unit);
         }
         return result.AsReadOnly();
@@ -330,6 +345,12 @@ public sealed class BattleSession
         return GetUnitsBySide(false);
     }
 
+    //현재 행동자와 같은 편의 전투 불능 전투원을 구함
+    public IReadOnlyList<BattleUnit> GetDeadAllies()
+    {
+        return GetUnitsBySide(false, deadOnly: true);
+    }
+
     //현재 행동자가 자원을 낼 수 있는 액티브 스킬을 구함
     public IReadOnlyList<SkillData> GetUsableSkills()
     {
@@ -349,6 +370,44 @@ public sealed class BattleSession
         return result.AsReadOnly();
     }
 
+    //전투원이 가진 액티브·패시브 스킬 원본을 보유 순서대로 구함
+    public IReadOnlyList<SkillData> GetUnitSkills(BattleUnit unit)
+    {
+        if (unit == null || !units.TryGetValue(unit.BattleId,
+                out BattleUnit registered) || registered != unit)
+            throw new InvalidOperationException("현재 전투에 없는 전투원입니다.");
+
+        var result = new List<SkillData>();
+        foreach (string skillId in unit.SkillIds)
+        {
+            if (skills.TryGetValue(skillId, out SkillData skill))
+                result.Add(skill);
+        }
+        return result.AsReadOnly();
+    }
+
+    //전투에 지참한 아니마의 스킬 원본을 보유 순서대로 구함
+    public IReadOnlyList<SkillData> GetAnimaSkills(Anima anima)
+    {
+        bool registered = false;
+        foreach (Anima battleAnima in animas)
+        {
+            if (!ReferenceEquals(battleAnima, anima)) continue;
+            registered = true;
+            break;
+        }
+        if (!registered)
+            throw new InvalidOperationException("전투에 지참하지 않은 아니마입니다.");
+
+        var result = new List<SkillData>();
+        foreach (string skillId in anima.SkillIds)
+        {
+            if (skills.TryGetValue(skillId, out SkillData skill))
+                result.Add(skill);
+        }
+        return result.AsReadOnly();
+    }
+
     //스킬에 연결된 실행 효과를 구함
     internal IReadOnlyList<SkillEffectData> GetSkillEffects(string skillId)
     {
@@ -357,6 +416,35 @@ public sealed class BattleSession
                 out IReadOnlyList<SkillEffectData> effects))
             throw new InvalidOperationException("스킬에 실행 효과가 없습니다.");
         return effects;
+    }
+
+    //스킬의 첫 피해 효과 속성을 구함. 회복·보조 스킬은 속성이 없음.
+    public DamageType? GetSkillDamageType(string skillId)
+    {
+        foreach (SkillEffectData effect in GetSkillEffects(skillId))
+        {
+            if (effect.Type == SkillEffectType.Damage)
+                return effect.DamageType;
+        }
+
+        return null;
+    }
+
+    //아이템의 첫 피해 효과 속성을 구함. 회복·보조 아이템은 속성이 없음.
+    public DamageType? GetItemDamageType(string itemId)
+    {
+        BattleDataChecks.CheckText(itemId);
+        if (!itemEffects.TryGetValue(itemId,
+                out IReadOnlyList<ItemEffectData> effects))
+            throw new InvalidOperationException("아이템에 실행 효과가 없습니다.");
+
+        foreach (ItemEffectData effect in effects)
+        {
+            if (effect.Type == ItemEffectType.Damage)
+                return effect.DamageType;
+        }
+
+        return null;
     }
 
     //ID에 해당하는 전투 효과 원본을 구함
@@ -400,7 +488,16 @@ public sealed class BattleSession
             throw new InvalidOperationException("상성을 확인할 수 없는 대상입니다.");
         if (!enemyKnowledge.IsRevealed(unit.Data.Id, damageType))
             return null;
-        return unit.Resistances.Get(damageType);
+        return unit.GetResistance(damageType);
+    }
+
+    //스킬 공격 속성에 해당하는 현재 적의 공개된 상성을 구함
+    public ResistanceType? GetKnownSkillResistance(string unitId, string skillId)
+    {
+        DamageType? damageType = GetSkillDamageType(skillId);
+        return damageType.HasValue
+            ? GetKnownResistance(unitId, damageType.Value)
+            : null;
     }
 
     //다음 행동자를 찾음. 죽거나 이탈한 전투원은 차례를 건너뜀.
@@ -436,13 +533,17 @@ public sealed class BattleSession
 
             //기본 행동 시작에 방어와 정신 상태 경과를 처리함.
             nextUnitInOrder.EndGuard();
+            nextUnitInOrder.ApplyTurnStartPassives();
             nextUnitInOrder.AdvanceMentalStates(random);
             if (!nextUnitInOrder.HasEffect(BattleEffectType.Thrill) &&
                 !nextUnitInOrder.HasEffect(BattleEffectType.Intimidation))
                 nextUnitInOrder.RecoverFromDown();
             currentUnit = nextUnitInOrder;
             if (nextUnitInOrder == mainCharacter)
+            {
                 animaChangeUsed = false;
+                animaChangePending = false;
+            }
             mentalAction = ChooseMentalAction(nextUnitInOrder);
             unit = nextUnitInOrder;
             return true;
@@ -462,11 +563,12 @@ public sealed class BattleSession
         string unitId = pendingOneMoreUnitId;
         pendingOneMoreUnitId = null;
         BattleUnit oneMoreUnit = units[unitId];
-        if (oneMoreUnit.IsDead || oneMoreUnit.HasLeftBattle)
+        if (oneMoreUnit.IsDead || oneMoreUnit.IsDown || oneMoreUnit.HasLeftBattle)
             return false;
 
         currentUnit = oneMoreUnit;
         IsOneMoreTurn = true;
+        shiftUsed = false;
         mentalAction = ChooseMentalAction(oneMoreUnit);
         unit = oneMoreUnit;
         return true;
@@ -626,10 +728,9 @@ public sealed class BattleSession
             case SkillCostType.None:
                 return true;
             case SkillCostType.Hp:
-                return BattleAttackCalculator.CanPayHp(actor,
-                    BattleAttackCalculator.CalculateHpCost(actor, skill.Cost));
+                return BattleAttackCalculator.CanPayHp(actor, actor.GetSkillCost(skill));
             case SkillCostType.Sp:
-                return BattleAttackCalculator.CanPaySp(actor, skill.Cost);
+                return BattleAttackCalculator.CanPaySp(actor, actor.GetSkillCost(skill));
             default:
                 throw new ArgumentOutOfRangeException(nameof(skill), "지원하지 않는 스킬 비용입니다.");
         }
@@ -885,6 +986,7 @@ public sealed class BattleSession
 
         currentUnit = null;
         actionExecuted = false;
+        shiftUsed = false;
         IsOneMoreTurn = false;
         allOutAttackAvailable = false;
         mentalAction = null;
@@ -899,7 +1001,8 @@ public sealed class BattleSession
             !string.Equals(result.OneMoreUnitId, currentUnit.BattleId,
                 StringComparison.Ordinal))
             return false;
-        if (mainCharacter.IsDown || mainCharacter.HasLeftBattle)
+        if (mainCharacter.IsDead || mainCharacter.IsDown ||
+            mainCharacter.HasLeftBattle || mainCharacter.HasMentalState)
             return false;
 
         int participantCount = GetAllOutAttackParticipants().Count;
@@ -928,6 +1031,7 @@ public sealed class BattleSession
         allOutAttackAvailable = false;
         mentalAction = null;
         animaChangeUsed = false;
+        animaChangePending = false;
     }
 
     //지참 아니마를 입력 순서대로 복사하고 중복 ID를 막음

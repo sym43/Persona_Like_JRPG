@@ -10,6 +10,7 @@ public sealed class BattleDataSet
     public IReadOnlyDictionary<string, AnimaData> Animas { get; }
     public IReadOnlyDictionary<string, SkillData> Skills { get; }
     public IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> SkillEffects { get; }
+    public IReadOnlyDictionary<string, IReadOnlyList<PassiveEffectData>> PassiveEffects { get; }
     public IReadOnlyDictionary<string, ItemData> Items { get; }
     public IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> ItemEffects { get; }
     public IReadOnlyDictionary<string, BattleEffectData> BattleEffects { get; }
@@ -23,6 +24,7 @@ public sealed class BattleDataSet
         IReadOnlyDictionary<string, AnimaData> animas,
         IReadOnlyDictionary<string, SkillData> skills,
         IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
+        IReadOnlyDictionary<string, IReadOnlyList<PassiveEffectData>> passiveEffects,
         IReadOnlyDictionary<string, ItemData> items,
         IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> itemEffects,
         IReadOnlyDictionary<string, BattleEffectData> battleEffects,
@@ -35,6 +37,7 @@ public sealed class BattleDataSet
         if (animas == null) throw new ArgumentNullException(nameof(animas), "아니마 목록이 필요합니다.");
         if (skills == null) throw new ArgumentNullException(nameof(skills), "스킬 목록이 필요합니다.");
         if (skillEffects == null) throw new ArgumentNullException(nameof(skillEffects), "스킬 효과 목록이 필요합니다.");
+        if (passiveEffects == null) throw new ArgumentNullException(nameof(passiveEffects), "패시브 효과 목록이 필요합니다.");
         if (items == null) throw new ArgumentNullException(nameof(items), "아이템 목록이 필요합니다.");
         if (itemEffects == null) throw new ArgumentNullException(nameof(itemEffects), "아이템 효과 목록이 필요합니다.");
         if (battleEffects == null) throw new ArgumentNullException(nameof(battleEffects), "전투 효과 목록이 필요합니다.");
@@ -47,6 +50,7 @@ public sealed class BattleDataSet
         Animas = Copy(animas);
         Skills = Copy(skills);
         SkillEffects = CopyLists(skillEffects);
+        PassiveEffects = CopyLists(passiveEffects);
         Items = Copy(items);
         ItemEffects = CopyLists(itemEffects);
         BattleEffects = Copy(battleEffects);

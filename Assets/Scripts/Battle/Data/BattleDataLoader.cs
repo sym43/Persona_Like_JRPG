@@ -8,6 +8,7 @@ public sealed class BattleDataLoader
 {
     private readonly SkillDataLoader skillLoader = new SkillDataLoader();
     private readonly SkillEffectDataLoader skillEffectLoader = new SkillEffectDataLoader();
+    private readonly PassiveEffectDataLoader passiveEffectLoader = new PassiveEffectDataLoader();
     private readonly ItemDataLoader itemLoader = new ItemDataLoader();
     private readonly ItemEffectDataLoader itemEffectLoader = new ItemEffectDataLoader();
     private readonly BattleEffectDataLoader battleEffectLoader = new BattleEffectDataLoader();
@@ -27,6 +28,7 @@ public sealed class BattleDataLoader
 
         var skills = skillLoader.Load();
         var skillEffects = skillEffectLoader.Load();
+        var passiveEffects = passiveEffectLoader.Load();
         var items = itemLoader.Load();
         var itemEffects = itemEffectLoader.Load();
         var battleEffects = battleEffectLoader.Load();
@@ -38,10 +40,10 @@ public sealed class BattleDataLoader
         var defaultEquipment = defaultEquipmentLoader.Load();
         var unitEquipGroups = unitEquipGroupLoader.Load();
 
-        CheckReferences(animas, skills, skillEffects, items, itemEffects,
+        CheckReferences(animas, skills, skillEffects, passiveEffects, items, itemEffects,
             battleEffects, learnableSkills, battleUnits, equipments,
             equipmentEffects, defaultEquipment, unitEquipGroups);
-        loadedData = new BattleDataSet(animas, skills, skillEffects, items,
+        loadedData = new BattleDataSet(animas, skills, skillEffects, passiveEffects, items,
             itemEffects, battleEffects, battleUnits, equipments,
             equipmentEffects, defaultEquipment, unitEquipGroups);
         return loadedData;
@@ -51,6 +53,7 @@ public sealed class BattleDataLoader
         IReadOnlyDictionary<string, AnimaData> animas,
         IReadOnlyDictionary<string, SkillData> skills,
         IReadOnlyDictionary<string, IReadOnlyList<SkillEffectData>> skillEffects,
+        IReadOnlyDictionary<string, IReadOnlyList<PassiveEffectData>> passiveEffects,
         IReadOnlyDictionary<string, ItemData> items,
         IReadOnlyDictionary<string, IReadOnlyList<ItemEffectData>> itemEffects,
         IReadOnlyDictionary<string, BattleEffectData> battleEffects,
@@ -91,6 +94,21 @@ public sealed class BattleDataLoader
         {
             if (skill.UseType == SkillUseType.Active && !skillEffects.ContainsKey(skill.Id))
                 throw new FormatException($"액티브 스킬에 실행 효과가 없습니다: {skill.Id}");
+            if (skill.UseType == SkillUseType.Passive && !passiveEffects.ContainsKey(skill.Id))
+                throw new FormatException($"패시브 스킬에 자동 효과가 없습니다: {skill.Id}");
+        }
+
+        foreach (var pair in passiveEffects)
+        {
+            if (!skills.TryGetValue(pair.Key, out SkillData skill))
+                throw new FormatException($"passive_effects.csv에 없는 스킬 ID가 있습니다: {pair.Key}");
+            if (skill.UseType != SkillUseType.Passive)
+                throw new FormatException($"액티브 스킬에는 패시브 효과를 넣을 수 없습니다: {pair.Key}");
+            foreach (PassiveEffectData effect in pair.Value)
+            {
+                if (effect.EffectId != null && !battleEffects.ContainsKey(effect.EffectId))
+                    throw new FormatException($"passive_effects.csv에 없는 전투 효과 ID가 있습니다: {effect.EffectId}");
+            }
         }
 
         foreach (var pair in itemEffects)

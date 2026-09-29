@@ -1,0 +1,2 @@
+skillId,order,effectType,damageType,value,resistanceType,effectId
+sample_critical,0,CriticalRateMultiplier,,200,,

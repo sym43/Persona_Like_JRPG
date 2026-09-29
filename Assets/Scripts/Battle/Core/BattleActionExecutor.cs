@@ -114,6 +114,7 @@ internal sealed class BattleActionExecutor
             ApplyEffect(actor, targets[0], effect.EffectId,
                 effect.ApplyChance, i + 1, impacts, effectResults, true);
         }
+        targets[0].EndGuard();
         return CreateResult(BattleActionType.BasicAttack, actor.BattleId,
             null, impacts, effectResults);
     }
@@ -129,8 +130,11 @@ internal sealed class BattleActionExecutor
         var impacts = new List<BattleImpactResult>();
         var effectResults = new List<BattleEffectResult>();
         string analyzedUnitId = null;
+        bool attackAction = false;
         foreach (SkillEffectData effect in effects)
         {
+            if (effect.Type == SkillEffectType.Damage)
+                attackAction = true;
             double charge = effect.Type == SkillEffectType.Damage
                 ? TakeChargeMultiplier(actor, effect.DamageType.Value)
                 : 1d;
@@ -172,6 +176,12 @@ internal sealed class BattleActionExecutor
             }
         }
 
+        if (attackAction)
+        {
+            foreach (BattleUnit target in targets)
+                target.EndGuard();
+        }
+
         return CreateResult(BattleActionType.Skill, actor.BattleId,
             skill.Id, impacts, effectResults,
             analyzedUnitId: analyzedUnitId);
@@ -187,8 +197,11 @@ internal sealed class BattleActionExecutor
 
         var impacts = new List<BattleImpactResult>();
         var effectResults = new List<BattleEffectResult>();
+        bool attackAction = false;
         foreach (ItemEffectData effect in effects)
         {
+            if (effect.Type == ItemEffectType.Damage)
+                attackAction = true;
             foreach (BattleUnit target in targets)
             {
                 if (target.HasLeftBattle) continue;
@@ -229,6 +242,13 @@ internal sealed class BattleActionExecutor
             }
         }
 
+
+        if (attackAction)
+        {
+            foreach (BattleUnit target in targets)
+                target.EndGuard();
+        }
+
         return CreateResult(BattleActionType.Item, actor.BattleId,
             null, impacts, effectResults, item.Id, itemCountAfter);
     }
@@ -240,12 +260,12 @@ internal sealed class BattleActionExecutor
             case SkillCostType.None:
                 return;
             case SkillCostType.Hp:
-                int hpCost = BattleAttackCalculator.CalculateHpCost(actor, skill.Cost);
+                int hpCost = actor.GetSkillCost(skill);
                 if (!actor.TryUseHp(hpCost))
                     throw new InvalidOperationException("스킬을 사용할 HP가 부족합니다.");
                 return;
             case SkillCostType.Sp:
-                if (!actor.TryUseSp(skill.Cost))
+                if (!actor.TryUseSp(actor.GetSkillCost(skill)))
                     throw new InvalidOperationException("스킬을 사용할 SP가 부족합니다.");
                 return;
             default:
@@ -285,6 +305,8 @@ internal sealed class BattleActionExecutor
             {
                 int chance = BattleAttackCalculator.CalculateMentalChance(
                     actor, effectTarget, applyChance, data.Type);
+                chance = applyChance == 100 ? 100 : Math.Min(99,
+                    (int)Math.Truncate(chance * actor.GetAilmentMultiplier(data.Id)));
                 blocked = random.Next(100) >= chance;
             }
             if (blocked)
@@ -331,24 +353,31 @@ internal sealed class BattleActionExecutor
         int criticalRate, bool basicAttack, int effectOrder,
         double chargeMultiplier, ICollection<BattleImpactResult> impacts)
     {
-        ResistanceType baseResistance = target.Resistances.Get(damageType);
+        ResistanceType baseResistance = target.GetResistance(damageType);
         ResistanceType resistance = baseResistance;
         BattleEffectType barrierType = BattleAttackCalculator.IsPhysical(damageType)
             ? BattleEffectType.PhysicalBarrier
             : BattleEffectType.EmotionBarrier;
-        bool blockedByBarrier = target.ConsumeEffect(barrierType);
-        if (blockedByBarrier)
+        bool counterable = baseResistance == ResistanceType.Normal ||
+                           baseResistance == ResistanceType.Weak ||
+                           baseResistance == ResistanceType.Resist;
+        int counterChance = target.GetPassiveMaximum(PassiveEffectType.CounterChance);
+        bool blockedByCounter = counterable && BattleAttackCalculator.IsPhysical(damageType) &&
+            target != actor && counterChance > 0 && random.Next(100) < counterChance;
+        bool blockedByBarrier = !blockedByCounter && target.ConsumeEffect(barrierType);
+        if (blockedByBarrier || blockedByCounter)
             resistance = ResistanceType.Reflect;
 
         if (resistance == ResistanceType.Immune)
         {
             impacts.Add(CreateImpact(effectOrder, 1, target, target,
                 true, false, resistance, resistance, 0, 0, false, false));
-            RevealResistance(target, damageType, blockedByBarrier);
+            RevealResistance(target, damageType, blockedByBarrier || blockedByCounter);
             return;
         }
 
-        bool cannotEvade = target.IsDown || target.HasEffect(BattleEffectType.Lethargy) ||
+        bool cannotEvade = target.IsDown || target.HasPassive(PassiveEffectType.FirmStance) ||
+            target.HasEffect(BattleEffectType.Lethargy) ||
             target.HasEffect(BattleEffectType.Thrill) ||
             target.HasEffect(BattleEffectType.Intimidation);
         bool hit = accuracy == 100 || cannotEvade ||
@@ -358,7 +387,7 @@ internal sealed class BattleActionExecutor
             int chance = BattleAttackCalculator.CalculateBaseHitChance(
                 actor, target, accuracy, target.ShoeEvasion);
             chance = (int)Math.Truncate(chance * GetAccuracyMultiplier(actor) *
-                GetEvasionMultiplier(target));
+                GetEvasionMultiplier(target, damageType));
             chance = Math.Max(50, Math.Min(99, chance));
             hit = random.Next(100) < chance;
         }
@@ -368,15 +397,19 @@ internal sealed class BattleActionExecutor
                 false, false, resistance, resistance, 0, 0, false, false));
             return;
         }
-        RevealResistance(target, damageType, blockedByBarrier);
+        RevealResistance(target, damageType, blockedByBarrier || blockedByCounter);
 
         int adjustedCriticalRate = Math.Min(100, criticalRate +
             actor.GetEffectValue(BattleEffectType.CriticalUp) + GetCriticalTakenBonus(target));
         bool targetImmuneToCritical = false;
+        int criticalChance = BattleAttackCalculator.CalculateBaseCriticalChance(
+            actor, target, adjustedCriticalRate);
+        criticalChance = Math.Min(100, (int)Math.Truncate(criticalChance *
+            actor.GetPassiveMultiplier(PassiveEffectType.CriticalRateMultiplier) *
+            target.GetPassiveMultiplier(PassiveEffectType.CriticalTakenMultiplier)));
         bool critical = BattleAttackCalculator.CanCritical(target,
             damageType, adjustedCriticalRate, true, resistance, false,
-            targetImmuneToCritical) && random.Next(100) <
-            BattleAttackCalculator.CalculateBaseCriticalChance(actor, target, adjustedCriticalRate);
+            targetImmuneToCritical) && random.Next(100) < criticalChance;
         if (!critical)
         {
             int extraCriticalRate = GetExtraCriticalRate(target);
@@ -389,7 +422,7 @@ internal sealed class BattleActionExecutor
         bool reflected = resistance == ResistanceType.Reflect;
         bool drained = resistance == ResistanceType.Drain;
         ResistanceType appliedResistance = reflected
-            ? actor.Resistances.Get(damageType) : resistance;
+            ? actor.GetResistance(damageType) : resistance;
         BattleUnit receiver = reflected ? actor : target;
 
         if (reflected && (appliedResistance == ResistanceType.Immune ||
@@ -412,8 +445,13 @@ internal sealed class BattleActionExecutor
             healing ? 1d : BattleAttackCalculator.GetAffinityMultiplier(appliedResistance),
             basicAttack);
         bool guarded = !reflected && !drained && target.IsGuarding;
+        double receivedMultiplier = receiver.HasPassive(PassiveEffectType.FirmStance)
+            ? receiver.GetPassiveMultiplier(PassiveEffectType.FirmStance)
+            : receiver.GetPassiveMultiplier(PassiveEffectType.ReceivedDamageMultiplier);
         double modifier = chargeMultiplier * GetAttackMultiplier(actor) *
             GetDefenseMultiplier(receiver) * GetMentalDamageMultiplier(actor, receiver) *
+            actor.GetPassiveMultiplier(PassiveEffectType.DamageMultiplier,
+                damageType, 5d) * (healing ? 1d : receivedMultiplier) *
             (effectiveCritical ? 1.5d : 1d) * (guarded ? 0.4d : 1d);
 
         for (int hitNumber = 1; hitNumber <= hitCount; hitNumber++)
@@ -443,15 +481,13 @@ internal sealed class BattleActionExecutor
             if (receiver.IsDead) break;
         }
 
-        if (guarded && receiver == target && target.Hp < target.MaxHp)
-            target.EndGuard();
     }
 
     private void ResolveItemAttack(BattleUnit actor, BattleUnit target,
         ItemEffectData effect, ICollection<BattleImpactResult> impacts)
     {
         DamageType damageType = effect.DamageType.Value;
-        ResistanceType baseResistance = target.Resistances.Get(damageType);
+        ResistanceType baseResistance = target.GetResistance(damageType);
         ResistanceType resistance = baseResistance;
         BattleEffectType barrierType = BattleAttackCalculator.IsPhysical(damageType)
             ? BattleEffectType.PhysicalBarrier
@@ -478,7 +514,7 @@ internal sealed class BattleActionExecutor
             int chance = BattleAttackCalculator.CalculateBaseHitChance(
                 actor, target, effect.Accuracy, target.ShoeEvasion);
             chance = (int)Math.Truncate(chance * GetAccuracyMultiplier(actor) *
-                GetEvasionMultiplier(target));
+                GetEvasionMultiplier(target, damageType));
             chance = Math.Max(50, Math.Min(99, chance));
             hit = random.Next(100) < chance;
         }
@@ -493,7 +529,7 @@ internal sealed class BattleActionExecutor
         bool reflected = resistance == ResistanceType.Reflect;
         bool drained = resistance == ResistanceType.Drain;
         ResistanceType appliedResistance = reflected
-            ? actor.Resistances.Get(damageType) : resistance;
+            ? actor.GetResistance(damageType) : resistance;
         BattleUnit receiver = reflected ? actor : target;
 
         if (reflected && (appliedResistance == ResistanceType.Immune ||
@@ -531,8 +567,6 @@ internal sealed class BattleActionExecutor
             true, false, resistance, appliedResistance, amount,
             0, downed, guarded));
 
-        if (guarded && receiver == target && target.Hp < target.MaxHp)
-            target.EndGuard();
     }
 
     private static void RecoverHpWithItem(BattleUnit target,
@@ -577,10 +611,10 @@ internal sealed class BattleActionExecutor
         SkillEffectData effect, ICollection<BattleImpactResult> impacts)
     {
         int magicBonus = BattleAttackCalculator.GetHealingMagicBonus(actor.Stats.Magic);
-        //임시: 패시브 스킬 연결 전에는 회복 강화 효과를 적용하지 않음.
-        bool hasHealingBoost = false;
+        double passiveMultiplier = actor.GetPassiveMultiplier(
+            PassiveEffectType.HealingMultiplier);
         int amount = BattleAttackCalculator.CalculateHealing(actor, effect.Power,
-            magicBonus, hasHealingBoost, random.Next(95, 106));
+            magicBonus, passiveMultiplier, random.Next(95, 106));
         int hpBefore = target.Hp;
         target.RecoverHp(amount);
         impacts.Add(CreateImpact(effect.Order, 1, target, target,
@@ -614,14 +648,16 @@ internal sealed class BattleActionExecutor
         double up = unit.GetEffectMultiplier(BattleEffectType.AccuracyEvasionUp);
         double value = up != 1d ? up : unit.GetEffectMultiplier(BattleEffectType.AccuracyEvasionDown);
         if (unit.HasEffect(BattleEffectType.Berserk)) value *= 0.5d;
-        return value;
+        return value * unit.GetPassiveMultiplier(PassiveEffectType.AccuracyMultiplier);
     }
 
-    private static double GetEvasionMultiplier(BattleUnit unit)
+    private static double GetEvasionMultiplier(BattleUnit unit, DamageType damageType)
     {
         double up = unit.GetEffectMultiplier(BattleEffectType.AccuracyEvasionUp);
-        if (up != 1d) return 0.7d;
-        return unit.HasEffect(BattleEffectType.AccuracyEvasionDown) ? 1.3d : 1d;
+        double value = up != 1d ? 0.7d :
+            unit.HasEffect(BattleEffectType.AccuracyEvasionDown) ? 1.3d : 1d;
+        return value * unit.GetPassiveMultiplier(
+            PassiveEffectType.EvasionMultiplier, damageType);
     }
 
     private static double GetMentalDamageMultiplier(BattleUnit actor, BattleUnit receiver)
@@ -698,6 +734,19 @@ internal sealed class BattleActionExecutor
     private static string FindOneMoreUnitId(string unitId,
         IReadOnlyList<BattleImpactResult> impacts)
     {
+        //광역 반사로 행동자가 쓰러졌다면 반사한 대상의 원모어를 먼저 처리함.
+        foreach (BattleImpactResult impact in impacts)
+        {
+            bool reflectedToActor = string.Equals(impact.AffectedUnitId,
+                unitId, StringComparison.Ordinal) &&
+                !string.Equals(impact.TargetUnitId, unitId, StringComparison.Ordinal);
+            bool weakDownOrDefeat = impact.AppliedResistance == ResistanceType.Weak &&
+                                    (impact.Downed || impact.HpAfter == 0);
+            if (reflectedToActor &&
+                (weakDownOrDefeat || impact.Critical && impact.Downed))
+                return impact.TargetUnitId;
+        }
+
         foreach (BattleImpactResult impact in impacts)
         {
             bool weakDownOrDefeat = impact.AppliedResistance == ResistanceType.Weak &&

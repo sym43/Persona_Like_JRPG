@@ -1,15 +1,15 @@
-﻿id,displayName,useType,costType,cost,targetType
-sample_slash,테스트 절단,Active,None,0,OneEnemy
-sample_strike,테스트 타격,Active,None,0,OneEnemy
-sample_fire,분노 충격,Active,Sp,4,OneEnemy
-sample_joy,희열 파동,Active,Sp,4,OneEnemy
-sample_joy_all,희열 파장,Active,Sp,8,AllEnemies
-sample_love,애정 광선,Active,Sp,4,OneEnemy
-sample_hatred,증오 투사,Active,Sp,4,OneEnemy
-sample_fear,공포 침식,Active,Sp,4,OneEnemy
-sample_despair,절망 파동,Active,Sp,4,OneEnemy
-sample_heal,테스트 회복,Active,Sp,3,OneAlly
-sample_attack_up,테스트 공격 강화,Active,Sp,6,OneAlly
-sample_fear_state,테스트 공포 부여,Active,Sp,5,OneEnemy
-sample_critical,테스트 치명타 상승,Passive,None,0,Self
-sample_analyze,테스트 분석,Active,Sp,35,OneEnemy
+﻿id,displayName,description,useType,costType,cost,targetType
+sample_slash,테스트 절단,적 하나에게 절단 속성 피해를 준다.,Active,Hp,7,OneEnemy
+sample_strike,테스트 타격,적 하나에게 타격 속성 피해를 준다.,Active,Hp,7,OneEnemy
+sample_fire,분노 충격,적 하나에게 분노 속성 피해를 준다.,Active,Sp,4,OneEnemy
+sample_joy,희열 파동,적 하나에게 희열 속성 피해를 준다.,Active,Sp,4,OneEnemy
+sample_joy_all,희열 파장,모든 적에게 희열 속성 피해를 준다.,Active,Sp,8,AllEnemies
+sample_love,애정 광선,적 하나에게 애정 속성 피해를 준다.,Active,Sp,4,OneEnemy
+sample_hatred,증오 투사,적 하나에게 증오 속성 피해를 준다.,Active,Sp,4,OneEnemy
+sample_fear,공포 침식,적 하나에게 공포 속성 피해를 준다.,Active,Sp,4,OneEnemy
+sample_despair,절망 파동,적 하나에게 절망 속성 피해를 준다.,Active,Sp,4,OneEnemy
+sample_heal,테스트 회복,아군 하나의 HP를 회복한다.,Active,Sp,3,OneAlly
+sample_attack_up,테스트 공격 강화,아군 하나의 공격력을 3턴 동안 높인다.,Active,Sp,6,OneAlly
+sample_fear_state,테스트 공포 부여,적 하나에게 일정 확률로 공포 상태를 부여한다.,Active,Sp,5,OneEnemy
+sample_critical,테스트 치명타 상승,치명타율을 높인다.,Passive,None,0,Self
+sample_analyze,테스트 분석,적 하나의 모든 상성을 공개한다.,Active,Sp,35,OneEnemy

@@ -14,6 +14,7 @@ public sealed class SkillDataLoader
     {
         "id",
         "displayName",
+        "description",
         "useType",
         "costType",
         "cost",
@@ -58,10 +59,11 @@ public sealed class SkillDataLoader
                 var skill = new SkillData(
                     CsvTableReader.ReadText(row, 0),
                     CsvTableReader.ReadText(row, 1),
-                    CsvTableReader.ReadEnum<SkillUseType>(row, 2, ColumnNames[2], sourceName, rowNumber),
-                    CsvTableReader.ReadEnum<SkillCostType>(row, 3, ColumnNames[3], sourceName, rowNumber),
-                    CsvTableReader.ReadNumber(row, 4, ColumnNames[4], sourceName, rowNumber),
-                    CsvTableReader.ReadEnum<BattleTargetType>(row, 5, ColumnNames[5], sourceName, rowNumber));
+                    CsvTableReader.ReadText(row, 2),
+                    CsvTableReader.ReadEnum<SkillUseType>(row, 3, ColumnNames[3], sourceName, rowNumber),
+                    CsvTableReader.ReadEnum<SkillCostType>(row, 4, ColumnNames[4], sourceName, rowNumber),
+                    CsvTableReader.ReadNumber(row, 5, ColumnNames[5], sourceName, rowNumber),
+                    CsvTableReader.ReadEnum<BattleTargetType>(row, 6, ColumnNames[6], sourceName, rowNumber));
 
                 if (!skills.TryAdd(skill.Id, skill))
                     throw new FormatException($"{sourceName} {rowNumber}행에 중복된 스킬 ID가 있습니다: {skill.Id}");

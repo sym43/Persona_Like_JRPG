@@ -9,6 +9,8 @@ public sealed class BattleActionView : MonoBehaviour
 {
     //전투 흐름을 연결할 컨트롤러
     [SerializeField] private BattleController battleController;
+    //상성 문구와 피해 숫자를 표시하는 UI
+    [SerializeField] private BattleHitResultView hitResultView;
 
     //활성화될 때 전투 행동 이벤트를 받음
     private void OnEnable()
@@ -49,11 +51,12 @@ public sealed class BattleActionView : MonoBehaviour
         battleController.ExecuteAction();
     }
 
-    //임시: 피해 숫자·피격·카메라 연출을 연결하면 결과별 대기를 교체함.
+    //임시: 피격 애니메이션을 연결하면 결과 UI와 함께 재생하도록 확장함.
     private IEnumerator PlayResult(BattleActionResult result)
     {
-        int stepCount = Mathf.Max(1, result.Impacts.Count);
-        for (int index = 0; index < stepCount; index++)
+        if (hitResultView != null)
+            yield return hitResultView.Show(result);
+        else
             yield return null;
 
         battleController.FinishAction();

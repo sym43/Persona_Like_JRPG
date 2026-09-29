@@ -10,6 +10,8 @@ public sealed class SkillData
     public string Id { get; }
     //ui에 보여질 이름
     public string DisplayName { get; }
+    //ui에 보여질 설명
+    public string Description { get; }
     //액티브 또는 패시브
     public SkillUseType UseType { get; }
     //자원 종류
@@ -20,13 +22,14 @@ public sealed class SkillData
     public BattleTargetType TargetType { get; }
 
     //스킬 데이터를 만듦
-    public SkillData(string id, string displayName, SkillUseType useType,
+    public SkillData(string id, string displayName, string description, SkillUseType useType,
         SkillCostType costType, int cost, BattleTargetType targetType)
     {
         #region 입력값 검사
 
         BattleDataChecks.CheckText(id);
         BattleDataChecks.CheckText(displayName);
+        BattleDataChecks.CheckText(description);
         if (!Enum.IsDefined(typeof(SkillUseType), useType))
             throw new ArgumentOutOfRangeException(nameof(useType), "알 수 없는 스킬 사용 방식입니다.");
         if (!Enum.IsDefined(typeof(SkillCostType), costType))
@@ -45,6 +48,7 @@ public sealed class SkillData
 
         Id = id;
         DisplayName = displayName;
+        Description = description;
         UseType = useType;
         CostType = costType;
         Cost = cost;

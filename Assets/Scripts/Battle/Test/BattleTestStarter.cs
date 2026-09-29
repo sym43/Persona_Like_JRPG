@@ -1,4 +1,3 @@
-using System;
 using System.Collections.Generic;
 using UnityEngine;
 
@@ -10,6 +9,8 @@ public sealed class BattleTestStarter : MonoBehaviour
 {
     //전투를 진행할 컨트롤러
     [SerializeField] private BattleController battleController;
+    //임시 전투원 오브젝트를 배치할 스포너
+    [SerializeField] private BattleActorSpawner battleActorSpawner;
 
     private const string PlayerId = "test_player";
     private const string FirstAnimaDataId = "test_anima_joy";
@@ -34,25 +35,25 @@ public sealed class BattleTestStarter : MonoBehaviour
         "test_enemy_fear"
     };
 
-    //임시: 주인공의 서로 다른 전투 행동을 차례대로 확인함.
-    private int playerActionCount;
     //임시: Awake에서 CSV 데이터로 구성한 전투.
     private BattleSession testBattle;
 
     //임시: 씬에 들어오면 CSV 데이터로 테스트 전투를 구성함.
     private void Awake()
     {
-        if (battleController == null)
+        if (battleController == null || battleActorSpawner == null)
         {
-            Debug.LogError("전투 테스트에 BattleController가 연결되지 않았습니다.");
+            Debug.LogError("전투 테스트에 컨트롤러 또는 전투원 스포너가 연결되지 않았습니다.");
             return;
         }
 
-        battleController.PlayerTurnStarted += ChoosePlayerAction;
         battleController.ActionResolved += LogActionResult;
         battleController.AnimaChanged += FinishAnimaChange;
         battleController.BattleEnded += LogBattleEnd;
-        testBattle = CreateTestBattle();
+        testBattle = CreateTestBattle(out List<BattleUnit> units);
+        battleActorSpawner.CacheAllies(AllyIds);
+        battleActorSpawner.CacheEnemies(EnemyIds);
+        battleActorSpawner.Spawn(units);
     }
 
     //임시: 다른 컴포넌트의 이벤트 연결이 끝난 뒤 테스트 전투를 시작함.
@@ -71,159 +72,9 @@ public sealed class BattleTestStarter : MonoBehaviour
         if (battleController == null)
             return;
 
-        battleController.PlayerTurnStarted -= ChoosePlayerAction;
         battleController.ActionResolved -= LogActionResult;
         battleController.AnimaChanged -= FinishAnimaChange;
         battleController.BattleEnded -= LogBattleEnd;
-    }
-
-    //임시: 플레이어 입력 UI 대신 현재 전투원이 사용할 행동을 자동으로 선택함.
-    private void ChoosePlayerAction(BattleUnit unit)
-    {
-        BattleAction action = unit.Data.Role == UnitRole.MainCharacter
-            ? ChooseMainCharacterAction(unit)
-            : ChooseCompanionAction(unit);
-        battleController.SubmitPlayerAction(action);
-    }
-
-    //임시: 주인공의 광역기·교체·아이템·일반 공격·스킬을 차례로 확인함.
-    private BattleAction ChooseMainCharacterAction(BattleUnit unit)
-    {
-        playerActionCount++;
-
-        if (playerActionCount == 1 && TryGetSkill("sample_joy_all", out SkillData areaSkill))
-            return CreateSkillAction(unit, areaSkill, null);
-
-        if (playerActionCount == 2 && battleController.CanChangeAnima &&
-            unit.AnimaInstanceId == FirstAnimaInstanceId)
-        {
-            battleController.ChangeAnima(SecondAnimaInstanceId);
-        }
-
-        if (playerActionCount == 3 && battleController.GetItemCount(ItemId) > 0)
-        {
-            return new BattleAction(unit.BattleId, BattleActionType.Item,
-                GetFirstOpponentId(), itemId: ItemId);
-        }
-
-        if (playerActionCount == 4 && unit.BasicAttack != null)
-        {
-            return new BattleAction(unit.BattleId, BattleActionType.BasicAttack,
-                GetFirstOpponentId());
-        }
-
-        return ChooseSkillOrBasicAttack(unit, "sample_fire", "test_enemy_anger");
-    }
-
-    //임시: 동료별 테스트 속성으로 약점을 우선 공격함.
-    private BattleAction ChooseCompanionAction(BattleUnit unit)
-    {
-        switch (unit.BattleId)
-        {
-            case "test_ally_love":
-                return ChooseSkillOrBasicAttack(unit, "sample_love", "test_enemy_love");
-            case "test_ally_anger":
-                return ChooseSkillOrBasicAttack(unit, "sample_fire", "test_enemy_anger");
-            case "test_ally_fear":
-                return ChooseSkillOrBasicAttack(unit, "sample_fear", "test_enemy_fear");
-            default:
-                return ChooseSkillOrBasicAttack(unit, null, null);
-        }
-    }
-
-    //임시: 우선 스킬을 쓸 수 없으면 다른 스킬이나 일반 공격을 고름.
-    private BattleAction ChooseSkillOrBasicAttack(BattleUnit unit,
-        string preferredSkillId, string preferredTargetId)
-    {
-        if (TryGetSkill(preferredSkillId, out SkillData preferred))
-            return CreateSkillAction(unit, preferred, preferredTargetId);
-
-        IReadOnlyList<SkillData> skills = testBattle.GetUsableSkills();
-        foreach (SkillData skill in skills)
-        {
-            if (skill.TargetType == BattleTargetType.OneDeadAlly)
-                continue;
-            return CreateSkillAction(unit, skill, null);
-        }
-
-        if (unit.BasicAttack != null)
-        {
-            return new BattleAction(unit.BattleId, BattleActionType.BasicAttack,
-                GetFirstOpponentId());
-        }
-
-        return new BattleAction(unit.BattleId, BattleActionType.Guard);
-    }
-
-    //현재 사용할 수 있는 스킬에서 ID가 같은 스킬을 찾음.
-    private bool TryGetSkill(string skillId, out SkillData found)
-    {
-        foreach (SkillData skill in testBattle.GetUsableSkills())
-        {
-            if (string.Equals(skill.Id, skillId, StringComparison.Ordinal))
-            {
-                found = skill;
-                return true;
-            }
-        }
-
-        found = null;
-        return false;
-    }
-
-    //스킬 대상 방식에 맞춰 테스트 행동을 만듦.
-    private BattleAction CreateSkillAction(BattleUnit unit,
-        SkillData skill, string preferredTargetId)
-    {
-        string targetId = null;
-        switch (skill.TargetType)
-        {
-            case BattleTargetType.OneEnemy:
-                targetId = GetLivingTargetId(testBattle.GetOpponents(), preferredTargetId);
-                break;
-            case BattleTargetType.OneAlly:
-                targetId = GetLowestHpAllyId();
-                break;
-            case BattleTargetType.OneDeadAlly:
-                throw new InvalidOperationException("임시 자동 전투는 부활 대상을 선택하지 않습니다.");
-        }
-
-        return new BattleAction(unit.BattleId, BattleActionType.Skill,
-            targetId, skill.Id);
-    }
-
-    //살아 있는 우선 대상이나 첫 대상을 구함.
-    private static string GetLivingTargetId(IReadOnlyList<BattleUnit> units,
-        string preferredId)
-    {
-        foreach (BattleUnit unit in units)
-        {
-            if (string.Equals(unit.BattleId, preferredId, StringComparison.Ordinal))
-                return unit.BattleId;
-        }
-
-        if (units.Count == 0)
-            throw new InvalidOperationException("행동할 수 있는 대상이 없습니다.");
-        return units[0].BattleId;
-    }
-
-    //현재 행동자의 첫 번째 살아 있는 상대 ID를 구함.
-    private string GetFirstOpponentId()
-    {
-        return GetLivingTargetId(testBattle.GetOpponents(), null);
-    }
-
-    //현재 행동자 편에서 HP 비율이 가장 낮은 전투원 ID를 구함.
-    private string GetLowestHpAllyId()
-    {
-        IReadOnlyList<BattleUnit> allies = testBattle.GetAllies();
-        BattleUnit selected = allies[0];
-        foreach (BattleUnit ally in allies)
-        {
-            if ((long)ally.Hp * selected.MaxHp < (long)selected.Hp * ally.MaxHp)
-                selected = ally;
-        }
-        return selected.BattleId;
     }
 
     //한 행동의 계산 결과를 콘솔에 표시함.
@@ -255,13 +106,13 @@ public sealed class BattleTestStarter : MonoBehaviour
     }
 
     //임시: CSV 원본과 기본 장비를 조립해 4대4 테스트 전투를 만듦.
-    private static BattleSession CreateTestBattle()
+    private static BattleSession CreateTestBattle(out List<BattleUnit> units)
     {
         BattleDataSet data = new BattleDataLoader().Load();
         var factory = new BattleUnitFactory(data);
         Anima firstAnima = CreateAnima(data, FirstAnimaInstanceId, FirstAnimaDataId);
         Anima secondAnima = CreateAnima(data, SecondAnimaInstanceId, SecondAnimaDataId);
-        var units = new List<BattleUnit>();
+        units = new List<BattleUnit>();
 
         for (int index = 0; index < AllyIds.Length; index++)
         {

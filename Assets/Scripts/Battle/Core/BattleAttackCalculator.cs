@@ -236,16 +236,17 @@ public static class BattleAttackCalculator
 
     //기술 회복력과 마력 보너스로 HP 회복량을 계산함
     public static int CalculateHealing(BattleUnit healer, int healingPower,
-        int magicBonus, bool hasHealingBoost, int rangePercent)
+        int magicBonus, double passiveMultiplier, int rangePercent)
     {
         if (healer == null) throw new ArgumentNullException(nameof(healer), "회복 기술 사용자가 필요합니다.");
         if (healingPower < 0) throw new ArgumentOutOfRangeException(nameof(healingPower), "회복력은 0 이상이어야 합니다.");
         if (magicBonus < 0) throw new ArgumentOutOfRangeException(nameof(magicBonus), "마력 보너스는 0 이상이어야 합니다.");
+        CheckMultiplier(passiveMultiplier, nameof(passiveMultiplier));
         CheckRange(rangePercent);
 
         double teamMultiplier = healer.IsEnemy ? 0.6d : 1d;
         double healed = Math.Truncate((healingPower + (double)magicBonus) * teamMultiplier);
-        if (hasHealingBoost) healed = Math.Truncate(healed * 1.5d);
+        healed = Math.Truncate(healed * passiveMultiplier);
         healed = Math.Max(1d, Math.Min(99999d, healed));
         return (int)Math.Truncate(Math.Max(1d, healed * rangePercent / 100d));
     }

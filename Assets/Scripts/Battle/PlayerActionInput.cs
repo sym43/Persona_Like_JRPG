@@ -41,6 +41,20 @@ public sealed class PlayerActionInput : MonoBehaviour
             new BattleAction(unit.BattleId, BattleActionType.Guard));
     }
 
+    //현재 원모어를 선택한 동료에게 넘김
+    public void ChooseShift(string unitId)
+    {
+        GetCurrentUnit();
+        battleController.SubmitShift(unitId);
+    }
+
+    //제안된 총공격을 실행하거나 거절함
+    public void ChooseAllOutAttack(bool useAllOutAttack)
+    {
+        GetCurrentUnit();
+        battleController.SubmitAllOutAttack(useAllOutAttack);
+    }
+
     //주인공이 사용할 아니마를 선택함
     public void ChooseAnima(string instanceId)
     {

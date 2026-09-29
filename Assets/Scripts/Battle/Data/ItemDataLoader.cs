@@ -14,6 +14,7 @@ public sealed class ItemDataLoader
     {
         "id",
         "displayName",
+        "description",
         "useType",
         "targetType"
     };
@@ -55,8 +56,9 @@ public sealed class ItemDataLoader
                 var item = new ItemData(
                     CsvTableReader.ReadText(row, 0),
                     CsvTableReader.ReadText(row, 1),
-                    CsvTableReader.ReadEnum<ItemUseType>(row, 2, ColumnNames[2], sourceName, rowNumber),
-                    CsvTableReader.ReadEnum<BattleTargetType>(row, 3, ColumnNames[3], sourceName, rowNumber));
+                    CsvTableReader.ReadText(row, 2),
+                    CsvTableReader.ReadEnum<ItemUseType>(row, 3, ColumnNames[3], sourceName, rowNumber),
+                    CsvTableReader.ReadEnum<BattleTargetType>(row, 4, ColumnNames[4], sourceName, rowNumber));
 
                 if (!items.TryAdd(item.Id, item))
                     throw new FormatException($"{sourceName} {rowNumber}행에 중복된 아이템 ID가 있습니다: {item.Id}");
